@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useWallet } from '../context/useWallet'
+import { notify } from './notificationService'
 import './Navbar.css'
 
 const navItems = [
@@ -14,14 +15,20 @@ const navItems = [
 export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { wallet, connect, disconnect, isReady } = useWallet()
+  const { wallet, connect, isReady } = useWallet()
   const [mobileOpen, setMobileOpen] = useState(false)
 
-  const handleWallet = () => {
-    if (wallet.connected) {
-      disconnect()
-    } else {
+  const handleWallet = async () => {
+    if (!wallet.connected) {
       connect()
+      return
+    }
+
+    try {
+      await navigator.clipboard.writeText(wallet.address)
+      notify('success', 'Wallet Address Copied', wallet.address)
+    } catch {
+      notify('info', 'Wallet Connected', wallet.address)
     }
   }
 
@@ -56,6 +63,7 @@ export default function Navbar() {
         className={`wallet-btn ${wallet.connected ? 'connected' : ''}`}
         onClick={handleWallet}
         disabled={!isReady}
+        title={wallet.connected ? 'Copy wallet address' : 'Connect wallet'}
       >
         {wallet.connected ? (
           <>
