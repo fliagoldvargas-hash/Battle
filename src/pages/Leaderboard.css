@@ -1,0 +1,229 @@
+.leaderboard-section {
+  padding-top: 64px;
+  min-height: 100vh;
+}
+
+.leaderboard-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 2rem 4rem;
+}
+
+/* Podium */
+.podium {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+
+.podium-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  transition: all var(--transition-normal);
+}
+
+.podium-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.06;
+  pointer-events: none;
+}
+
+.podium-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-glow);
+}
+
+.podium-1 {
+  border-color: rgba(255, 215, 0, 0.3);
+  order: 2;
+}
+
+.podium-1::before {
+  background: linear-gradient(135deg, #FFD700, transparent);
+  opacity: 0.08;
+}
+
+.podium-1:hover {
+  box-shadow: 0 0 30px rgba(255, 215, 0, 0.15);
+}
+
+.podium-2 {
+  border-color: rgba(192, 192, 192, 0.3);
+  order: 1;
+  margin-top: 1.5rem;
+}
+
+.podium-2::before {
+  background: linear-gradient(135deg, #C0C0C0, transparent);
+}
+
+.podium-3 {
+  border-color: rgba(205, 127, 50, 0.3);
+  order: 3;
+  margin-top: 1.5rem;
+}
+
+.podium-3::before {
+  background: linear-gradient(135deg, #CD7F32, transparent);
+}
+
+.podium-medal {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.podium-rank-badge {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  margin-bottom: 0.75rem;
+}
+
+.podium-player {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  color: var(--text);
+  margin-bottom: 1rem;
+  word-break: break-all;
+}
+
+.podium-stats {
+  display: flex;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.podium-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.podium-stat-value {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.podium-stat-value.green {
+  color: var(--green);
+}
+
+.podium-stat-label {
+  font-size: 0.65rem;
+  color: var(--muted);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.podium-staked {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--violet);
+}
+
+/* Table */
+.leaderboard-table {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.lb-header {
+  display: grid;
+  grid-template-columns: 60px 1fr 100px 100px 100px;
+  padding: 0.75rem 1.5rem;
+  background: var(--card2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 100px 100px 100px;
+  padding: 1rem 1.5rem;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  transition: background var(--transition-fast);
+}
+
+.lb-row:last-child {
+  border-bottom: none;
+}
+
+.lb-row:hover {
+  background: rgba(123, 47, 255, 0.04);
+}
+
+.lb-rank {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.lb-rank.gold { color: var(--gold); }
+.lb-rank.silver { color: #C0C0C0; }
+.lb-rank.bronze { color: #CD7F32; }
+
+.lb-player {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.lb-wins {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.lb-rate {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--green);
+}
+
+.lb-staked {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--violet);
+}
+
+@media (max-width: 768px) {
+  .podium {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .podium-1, .podium-2, .podium-3 {
+    order: unset;
+    margin-top: 0;
+  }
+
+  .lb-header,
+  .lb-row {
+    grid-template-columns: 40px 1fr 80px 80px;
+  }
+
+  .lb-staked-col,
+  .lb-staked {
+    display: none;
+  }
+}
