@@ -1,9 +1,15 @@
 import { useCallback, useMemo } from 'react'
-import { base58 } from '@scure/base'
 import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
+
+function signatureToBase64(signature) {
+  if (typeof signature === 'string') return signature
+
+  const binary = Array.from(signature, (byte) => String.fromCharCode(byte)).join('')
+  return btoa(binary)
+}
 
 export function WalletProvider({ children }) {
   const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
@@ -16,12 +22,13 @@ export function WalletProvider({ children }) {
       const encodedMessage = new TextEncoder().encode(message)
       const { signature } = await solanaWallet.signMessage({ message: encodedMessage })
       await loginWithSiws({
-        signature: typeof signature === 'string' ? signature : base58.encode(signature),
+        signature: signatureToBase64(signature),
         message,
       })
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
-      notify('error', 'Wallet Authentication Failed', 'Approve the Phantom or Solflare signature request and try again.')
+      const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
+      notify('error', 'Wallet Authentication Failed', message)
     }
   }, [generateSiwsMessage, loginWithSiws])
 
