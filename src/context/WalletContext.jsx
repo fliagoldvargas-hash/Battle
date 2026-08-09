@@ -1,46 +1,60 @@
-import { useState, useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
+import { usePrivy } from '@privy-io/react-auth'
+import { useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
 
-const MOCK_WALLETS = [
-  { name: 'Phantom', icon: '👻', desc: 'Most popular Solana wallet' },
-  { name: 'Solflare', icon: '🔆', desc: 'Feature-rich Solana wallet' },
-  { name: 'Backpack', icon: '🎒', desc: 'Multi-chain wallet by xNFT' },
-]
-
 export function WalletProvider({ children }) {
-  const [wallet, setWallet] = useState({
-    connected: false,
-    address: '',
-    balance: 0,
-    provider: null,
-  })
+  const { connectWallet, logout, ready: privyReady } = usePrivy()
+  const { wallets, ready: walletsReady } = useWallets()
+  const activeWallet = wallets[0]
 
-  const connect = useCallback((providerName = 'Phantom') => {
-    // Mock wallet connection — will be replaced with @solana/wallet-adapter-react
-    const mockAddress = 'TBat' + Array.from({ length: 8 }, () =>
-      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789'[
-        Math.floor(Math.random() * 58)
-      ]
-    ).join('') + '...'
-    
-    setWallet({
-      connected: true,
-      address: mockAddress.slice(0, 4) + mockAddress.slice(4, 8) + Array.from({length: 36}, () => 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789'[Math.floor(Math.random()*58)]).join(''),
-      balance: (Math.random() * 50 + 5).toFixed(2),
-      provider: providerName,
-    })
-    notify('success', 'Wallet Connected', `Connected via ${providerName}`)
-  }, [])
+  const wallet = useMemo(() => ({
+    connected: Boolean(activeWallet),
+    address: activeWallet?.address ?? '',
+    balance: null,
+    provider: activeWallet?.standardWallet?.name ?? null,
+  }), [activeWallet])
 
-  const disconnect = useCallback(() => {
-    setWallet({ connected: false, address: '', balance: 0, provider: null })
-    notify('info', 'Wallet Disconnected', 'Your wallet has been disconnected')
-  }, [])
+  const connect = useCallback(() => {
+    if (!privyReady || !walletsReady) {
+      notify('info', 'Wallet Loading', 'Privy is still preparing wallet connections')
+      return
+    }
+
+    connectWallet({ walletList: ['phantom', 'solflare'] })
+  }, [connectWallet, privyReady, walletsReady])
+
+  const disconnect = useCallback(async () => {
+    await logout()
+    notify('info', 'Wallet Disconnected', 'Your Privy session has been closed')
+  }, [logout])
 
   return (
-    <WalletContext.Provider value={{ wallet, connect, disconnect, MOCK_WALLETS }}>
+    <WalletContext.Provider value={{
+      wallet,
+      connect,
+      disconnect,
+      isReady: privyReady && walletsReady,
+      isConfigured: true,
+    }}>
       {children}
     </WalletContext.Provider>
   )
+}
+
+export function WalletUnavailableProvider({ children }) {
+  const connect = useCallback(() => {
+    notify('error', 'Privy Not Configured', 'Add VITE_PRIVY_APP_ID to connect a wallet locally')
+  }, [])
+
+  const value = useMemo(() => ({
+    wallet: { connected: false, address: '', balance: null, provider: null },
+    connect,
+    disconnect: () => {},
+    isReady: true,
+    isConfigured: false,
+  }), [connect])
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>
 }

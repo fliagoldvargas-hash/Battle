@@ -14,7 +14,7 @@ const navItems = [
 export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { wallet, connect, disconnect } = useWallet()
+  const { wallet, connect, disconnect, isReady } = useWallet()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const handleWallet = () => {
@@ -55,6 +55,7 @@ export default function Navbar() {
       <button
         className={`wallet-btn ${wallet.connected ? 'connected' : ''}`}
         onClick={handleWallet}
+        disabled={!isReady}
       >
         {wallet.connected ? (
           <>
@@ -62,7 +63,7 @@ export default function Navbar() {
             {wallet.address.slice(0, 4)}...{wallet.address.slice(-4)}
           </>
         ) : (
-          'Connect Wallet'
+          isReady ? 'Connect Wallet' : 'Loading Wallet...'
         )}
       </button>
     </nav>
