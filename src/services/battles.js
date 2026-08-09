@@ -13,7 +13,7 @@ const durationLabel = (seconds) => {
   return `${seconds / 60}m`
 }
 
-const mapBattle = (battle) => ({
+export const mapBattle = (battle) => ({
   id: battle.id,
   status: battle.status,
   tokenA: {

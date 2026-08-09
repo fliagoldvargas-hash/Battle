@@ -13,7 +13,9 @@ end $$;
 create table if not exists public.battles (
   id uuid primary key default gen_random_uuid(),
   status public.battle_status not null default 'waiting',
+  creator_privy_user_id text not null,
   creator_wallet text not null,
+  opponent_privy_user_id text,
   opponent_wallet text,
   token_a_mint text not null,
   token_a_symbol text not null,
@@ -32,7 +34,7 @@ create table if not exists public.battles (
   winner_symbol text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  check ((status = 'waiting' and opponent_wallet is null and token_b_mint is null) or status <> 'waiting')
+  check ((status = 'waiting' and opponent_wallet is null and opponent_privy_user_id is null and token_b_mint is null) or status <> 'waiting')
 );
 
 create table if not exists public.battle_price_snapshots (

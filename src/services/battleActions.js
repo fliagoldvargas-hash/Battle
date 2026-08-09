@@ -1,0 +1,44 @@
+import { mapBattle } from './battles'
+
+async function postBattleAction({ getAccessToken, walletAddress, body }) {
+  const accessToken = await getAccessToken()
+  if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
+
+  const response = await fetch('/api/battles', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ ...body, walletAddress }),
+  })
+
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || 'Unable to update the battle.')
+  return mapBattle(result.battle)
+}
+
+export function createBattle(input) {
+  return postBattleAction({
+    getAccessToken: input.getAccessToken,
+    walletAddress: input.walletAddress,
+    body: {
+      action: 'create',
+      token: input.token,
+      stakeSol: input.stakeSol,
+      durationSeconds: input.durationSeconds,
+    },
+  })
+}
+
+export function joinBattle(input) {
+  return postBattleAction({
+    getAccessToken: input.getAccessToken,
+    walletAddress: input.walletAddress,
+    body: {
+      action: 'join',
+      battleId: input.battleId,
+      token: input.token,
+    },
+  })
+}

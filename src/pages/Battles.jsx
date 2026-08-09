@@ -5,11 +5,12 @@ import { MOCK_BATTLES, MOCK_TOKENS, DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
+import { createBattle, joinBattle } from '../services/battleActions'
 import './Battles.css'
 
 export default function Battles() {
-  const { wallet } = useWallet()
-  const [battles, setBattles] = useState(MOCK_BATTLES)
+  const { wallet, getAccessToken } = useWallet()
+  const [battles, setBattles] = useState([])
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -19,13 +20,15 @@ export default function Battles() {
   const [selectedToken, setSelectedToken] = useState('')
   const [tokenSearch, setTokenSearch] = useState('')
   const [showTokenResults, setShowTokenResults] = useState(false)
+  const [joinToken, setJoinToken] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
 
     fetchPublicBattles()
       .then((remoteBattles) => {
-        if (!cancelled && remoteBattles?.length) setBattles(remoteBattles)
+        if (!cancelled) setBattles(remoteBattles ?? MOCK_BATTLES)
       })
       .catch(() => {
         // Keep the existing display available if Supabase is not yet configured.
@@ -65,7 +68,7 @@ export default function Battles() {
     ).slice(0, 5)
   }, [tokenSearch])
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!wallet.connected) {
       notify('error', 'Wallet Required', 'Please connect your wallet first')
       return
@@ -77,25 +80,66 @@ export default function Battles() {
     }
 
     const token = MOCK_TOKENS.find(item => item.symbol === selectedToken)
-    const duration = DURATIONS.find(item => item.value === selectedDuration)
-    const newBattle = {
-      id: Math.max(0, ...battles.map(battle => battle.id)) + 1,
-      status: 'waiting',
-      tokenA: { symbol: selectedToken, mc: token?.mc ?? 'N/A' },
-      tokenB: null,
-      stake,
-      pot: stake,
-      durationLabel: duration?.label ?? '1h',
-      durationSecs: selectedDuration,
-      creator: `${wallet.address.slice(0, 8)}...${wallet.address.slice(-4)}`,
+    if (!token) {
+      notify('error', 'Invalid Token', 'Choose a token from the available list')
+      return
     }
 
-    setBattles(currentBattles => [newBattle, ...currentBattles])
-    notify('success', 'Battle Created!', `${selectedToken} battle for ${stakeAmount} SOL`)
-    setCreateOpen(false)
-    setSelectedToken('')
-    setTokenSearch('')
-    setStakeAmount('5')
+    setIsSubmitting(true)
+    try {
+      const newBattle = await createBattle({
+        getAccessToken,
+        walletAddress: wallet.address,
+        token: { mint: token.address, symbol: token.symbol, marketCap: token.mc },
+        stakeSol: stake,
+        durationSeconds: selectedDuration,
+      })
+      setBattles(currentBattles => [newBattle, ...currentBattles])
+      notify('success', 'Battle Created!', `${selectedToken} battle was saved`)
+      setCreateOpen(false)
+      setSelectedToken('')
+      setTokenSearch('')
+      setStakeAmount('5')
+    } catch (error) {
+      notify('error', 'Battle Not Created', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const openBattle = (battle) => {
+    setViewBattle(battle)
+    const defaultToken = MOCK_TOKENS.find(token => token.symbol !== battle.tokenA.symbol)
+    setJoinToken(defaultToken?.symbol ?? '')
+  }
+
+  const handleJoin = async () => {
+    if (!wallet.connected) {
+      notify('error', 'Wallet Required', 'Please connect your wallet before joining a battle')
+      return
+    }
+    const token = MOCK_TOKENS.find(item => item.symbol === joinToken)
+    if (!token) {
+      notify('error', 'Token Required', 'Choose the token you want to battle with')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const joinedBattle = await joinBattle({
+        getAccessToken,
+        walletAddress: wallet.address,
+        battleId: viewBattle.id,
+        token: { mint: token.address, symbol: token.symbol, marketCap: token.mc },
+      })
+      setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
+      notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
+      setViewBattle(null)
+    } catch (error) {
+      notify('error', 'Could Not Join', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const formatTime = (seconds) => {
@@ -143,7 +187,7 @@ export default function Battles() {
           <div className="battles-grid">
             {filteredBattles.map((battle, i) => (
               <div key={battle.id} className="animate-in" style={{ animationDelay: `${i * 0.08}s` }}>
-                <BattleCard battle={battle} onClick={setViewBattle} />
+                <BattleCard battle={battle} onClick={openBattle} />
               </div>
             ))}
           </div>
@@ -229,8 +273,8 @@ export default function Battles() {
           <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(1)} SOL</span>
         </div>
 
-        <button className="form-submit" onClick={handleCreate}>
-          ⚔ CREATE BATTLE
+        <button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>
+          {isSubmitting ? 'SAVING...' : '⚔ CREATE BATTLE'}
         </button>
       </Modal>
 
@@ -314,26 +358,23 @@ export default function Battles() {
             )}
 
             {viewBattle.status === 'waiting' && (
-              <button className="form-submit" onClick={() => {
-                if (!wallet.connected) {
-                  notify('error', 'Wallet Required', 'Please connect your wallet before joining a battle')
-                  return
-                }
-                const durationSecs = viewBattle.durationSecs ?? DURATIONS.find(item => item.label === viewBattle.durationLabel)?.value ?? 3600
-                const joinedBattle = {
-                  ...viewBattle,
-                  status: 'active',
-                  tokenB: { symbol: '$CHALLENGER', mc: 'N/A', perf: 0 },
-                  opponent: `${wallet.address.slice(0, 8)}...${wallet.address.slice(-4)}`,
-                  pot: Number(viewBattle.stake) * 2,
-                  endTime: Math.floor(Date.now() / 1000) + durationSecs,
-                }
-                setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
-                notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
-                setViewBattle(null)
-              }}>
-                ⚔ JOIN BATTLE ({viewBattle.stake} SOL)
-              </button>
+              <>
+                <div className="form-group">
+                  <label className="form-label">Your Token</label>
+                  <select
+                    className="form-input"
+                    value={joinToken}
+                    onChange={event => setJoinToken(event.target.value)}
+                  >
+                    {MOCK_TOKENS.filter(token => token.symbol !== viewBattle.tokenA.symbol).map(token => (
+                      <option key={token.symbol} value={token.symbol}>{token.symbol}</option>
+                    ))}
+                  </select>
+                </div>
+                <button className="form-submit" onClick={handleJoin} disabled={isSubmitting}>
+                  {isSubmitting ? 'SAVING...' : `⚔ JOIN BATTLE (${viewBattle.stake} SOL)`}
+                </button>
+              </>
             )}
 
             {(viewBattle.status === 'finished' || viewBattle.status === 'settled') && viewBattle.winner && (

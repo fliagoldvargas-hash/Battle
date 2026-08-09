@@ -5,7 +5,7 @@ import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
 
 export function WalletProvider({ children }) {
-  const { connectWallet, logout, ready: privyReady } = usePrivy()
+  const { connectWallet, getAccessToken, logout, ready: privyReady } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
   const activeWallet = wallets[0]
 
@@ -35,6 +35,7 @@ export function WalletProvider({ children }) {
       wallet,
       connect,
       disconnect,
+      getAccessToken,
       isReady: privyReady && walletsReady,
       isConfigured: true,
     }}>
@@ -52,6 +53,7 @@ export function WalletUnavailableProvider({ children }) {
     wallet: { connected: false, address: '', balance: null, provider: null },
     connect,
     disconnect: () => {},
+    getAccessToken: async () => null,
     isReady: true,
     isConfigured: false,
   }), [connect])
