@@ -1,7 +1,11 @@
 import { mapBattle } from './battles'
 
 async function postBattleAction({ getAccessToken, walletAddress, body }) {
-  const accessToken = await getAccessToken()
+  let accessToken = await getAccessToken()
+  if (!accessToken) {
+    await new Promise(resolve => setTimeout(resolve, 300))
+    accessToken = await getAccessToken()
+  }
   if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
 
   const response = await fetch('/api/battles', {

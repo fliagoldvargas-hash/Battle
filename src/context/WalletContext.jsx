@@ -5,16 +5,18 @@ import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
 
 export function WalletProvider({ children }) {
-  const { connectWallet, getAccessToken, logout, ready: privyReady } = usePrivy()
+  const { authenticated, getAccessToken, login, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
-  const activeWallet = wallets[0]
+  const activeWallet = wallets.find((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
+    linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
+  )))
 
   const wallet = useMemo(() => ({
-    connected: Boolean(activeWallet),
+    connected: Boolean(authenticated && activeWallet),
     address: activeWallet?.address ?? '',
     balance: null,
     provider: activeWallet?.standardWallet?.name ?? null,
-  }), [activeWallet])
+  }), [activeWallet, authenticated])
 
   const connect = useCallback(() => {
     if (!privyReady || !walletsReady) {
@@ -22,8 +24,8 @@ export function WalletProvider({ children }) {
       return
     }
 
-    connectWallet({ walletList: ['phantom', 'solflare'] })
-  }, [connectWallet, privyReady, walletsReady])
+    login()
+  }, [login, privyReady, walletsReady])
 
   const disconnect = useCallback(async () => {
     await logout()
