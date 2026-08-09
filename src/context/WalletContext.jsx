@@ -1,12 +1,34 @@
 import { useCallback, useMemo } from 'react'
-import { usePrivy } from '@privy-io/react-auth'
+import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
 
 export function WalletProvider({ children }) {
-  const { authenticated, getAccessToken, login, logout, ready: privyReady, user } = usePrivy()
+  const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
+  const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
+
+  const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
+    try {
+      const message = await generateSiwsMessage({ address: solanaWallet.address })
+      const encodedMessage = new TextEncoder().encode(message)
+      const { signature } = await solanaWallet.signMessage({ message: encodedMessage })
+      await loginWithSiws({ signature, message })
+    } catch (error) {
+      console.error('Solana wallet authentication failed', error)
+      notify('error', 'Wallet Authentication Failed', 'Approve the Phantom or Solflare signature request and try again.')
+    }
+  }, [generateSiwsMessage, loginWithSiws])
+
+  const { connectWallet } = useConnectWallet({
+    onSuccess: ({ wallet: connectedWallet }) => {
+      void authenticateSolanaWallet(connectedWallet)
+    },
+    onError: () => {
+      notify('error', 'Wallet Connection Failed', 'Could not connect your Solana wallet. Please try again.')
+    },
+  })
   const activeWallet = wallets.find((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
     linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
   )))
@@ -24,8 +46,17 @@ export function WalletProvider({ children }) {
       return
     }
 
-    login()
-  }, [login, privyReady, walletsReady])
+    const connectedSolanaWallet = wallets[0]
+    if (connectedSolanaWallet) {
+      void authenticateSolanaWallet(connectedSolanaWallet)
+      return
+    }
+
+    connectWallet({
+      walletList: ['phantom', 'solflare'],
+      walletChainType: 'solana-only',
+    })
+  }, [authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
 
   const disconnect = useCallback(async () => {
     await logout()
