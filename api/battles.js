@@ -1,5 +1,6 @@
 import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
+import { getPumpFunToken } from './lib/pumpfun.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000
@@ -71,29 +72,6 @@ function verifiedSolanaWallet(user, walletAddress) {
   return account.address
 }
 
-function validToken(token) {
-  return token
-    && typeof token.mint === 'string'
-    && token.mint.length >= 3
-    && token.mint.length <= 128
-    && typeof token.symbol === 'string'
-    && token.symbol.length >= 1
-    && token.symbol.length <= 32
-}
-
-function parseMarketCap(value) {
-  if (value == null || value === '') return null
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
-  if (typeof value !== 'string') return null
-
-  const normalized = value.trim().replace(/^\$/, '').replace(/,/g, '')
-  const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/i)
-  if (!match) return null
-
-  const multiplier = { K: 1_000, M: 1_000_000, B: 1_000_000_000 }[match[2]?.toUpperCase()] ?? 1
-  return Number(match[1]) * multiplier
-}
-
 function parseStakeLamports(stakeSol) {
   const stakeLamports = Math.round(Number(stakeSol) * LAMPORTS_PER_SOL)
   if (!Number.isSafeInteger(stakeLamports)
@@ -107,7 +85,7 @@ function parseStakeLamports(stakeSol) {
 }
 
 function assertCreatePayload(payload) {
-  if (!validToken(payload.token) || !ALLOWED_DURATIONS.has(payload.durationSeconds)) {
+  if (!payload?.token || !ALLOWED_DURATIONS.has(payload.durationSeconds)) {
     const error = new Error('Invalid token or battle duration.')
     error.status = 400
     throw error
@@ -116,6 +94,7 @@ function assertCreatePayload(payload) {
 
 async function createBattle({ supabase, userId, walletAddress, payload }) {
   assertCreatePayload(payload)
+  const token = await getPumpFunToken(payload.token.mint)
   const stakeLamports = parseStakeLamports(payload.stakeSol)
 
   const { data, error } = await supabase
@@ -123,9 +102,9 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
     .insert({
       creator_privy_user_id: userId,
       creator_wallet: walletAddress,
-      token_a_mint: payload.token.mint,
-      token_a_symbol: payload.token.symbol,
-      token_a_market_cap: parseMarketCap(payload.token.marketCap),
+      token_a_mint: token.mint,
+      token_a_symbol: token.symbol,
+      token_a_market_cap: token.marketCap,
       stake_lamports: stakeLamports,
       pot_lamports: stakeLamports,
       duration_seconds: payload.durationSeconds,
@@ -138,11 +117,12 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
 }
 
 async function joinBattle({ supabase, userId, walletAddress, payload }) {
-  if (!validToken(payload.token) || typeof payload.battleId !== 'string') {
+  if (!payload?.token || typeof payload.battleId !== 'string') {
     const error = new Error('Invalid battle or token.')
     error.status = 400
     throw error
   }
+  const token = await getPumpFunToken(payload.token.mint)
 
   const { data: existingBattle, error: readError } = await supabase
     .from('battles')
@@ -170,9 +150,9 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
       status: 'active',
       opponent_privy_user_id: userId,
       opponent_wallet: walletAddress,
-      token_b_mint: payload.token.mint,
-      token_b_symbol: payload.token.symbol,
-      token_b_market_cap: parseMarketCap(payload.token.marketCap),
+      token_b_mint: token.mint,
+      token_b_symbol: token.symbol,
+      token_b_market_cap: token.marketCap,
       pot_lamports: Number(existingBattle.stake_lamports) * 2,
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),

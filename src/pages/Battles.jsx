@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
-import { MOCK_BATTLES, MOCK_TOKENS, DURATIONS } from '../data/mockData'
+import { MOCK_BATTLES, DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
 import { createBattle, joinBattle } from '../services/battleActions'
+import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
 export default function Battles() {
@@ -17,10 +18,12 @@ export default function Battles() {
   const [viewBattle, setViewBattle] = useState(null)
   const [selectedDuration, setSelectedDuration] = useState(3600)
   const [stakeAmount, setStakeAmount] = useState('5')
-  const [selectedToken, setSelectedToken] = useState('')
-  const [tokenSearch, setTokenSearch] = useState('')
-  const [showTokenResults, setShowTokenResults] = useState(false)
-  const [joinToken, setJoinToken] = useState('')
+  const [selectedToken, setSelectedToken] = useState(null)
+  const [tokenAddress, setTokenAddress] = useState('')
+  const [joinToken, setJoinToken] = useState(null)
+  const [joinTokenAddress, setJoinTokenAddress] = useState('')
+  const [isLookingUpToken, setIsLookingUpToken] = useState(false)
+  const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -61,12 +64,33 @@ export default function Battles() {
     return () => clearInterval(interval)
   }, [viewBattle?.status])
 
-  const tokenResults = useMemo(() => {
-    if (!tokenSearch) return []
-    return MOCK_TOKENS.filter(t =>
-      t.symbol.toLowerCase().includes(tokenSearch.toLowerCase())
-    ).slice(0, 5)
-  }, [tokenSearch])
+  const loadToken = async (address, setToken, setLoading) => {
+    if (!address.trim()) {
+      setToken(null)
+      return null
+    }
+
+    setLoading(true)
+    try {
+      const token = await lookupPumpFunToken(address)
+      setToken(token)
+      return token
+    } catch (error) {
+      setToken(null)
+      notify('error', 'Token Not Found', error.message)
+      return null
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const formatMarketCap = (marketCap) => {
+    if (!Number.isFinite(marketCap)) return 'MC unavailable'
+    if (marketCap >= 1_000_000_000) return `MC $${(marketCap / 1_000_000_000).toFixed(2)}B`
+    if (marketCap >= 1_000_000) return `MC $${(marketCap / 1_000_000).toFixed(2)}M`
+    if (marketCap >= 1_000) return `MC $${(marketCap / 1_000).toFixed(1)}K`
+    return `MC $${marketCap.toFixed(0)}`
+  }
 
   const handleCreate = async () => {
     if (!wallet.connected) {
@@ -74,14 +98,9 @@ export default function Battles() {
       return
     }
     const stake = Number(stakeAmount)
-    if (!selectedToken || !Number.isFinite(stake) || stake < 0.1) {
-      notify('error', 'Invalid Battle', 'Select a token and enter a stake of at least 0.1 SOL')
-      return
-    }
-
-    const token = MOCK_TOKENS.find(item => item.symbol === selectedToken)
-    if (!token) {
-      notify('error', 'Invalid Token', 'Choose a token from the available list')
+    const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
+    if (!token || !Number.isFinite(stake) || stake < 0.1) {
+      notify('error', 'Invalid Battle', 'Enter a valid Pump.fun CA and a stake of at least 0.1 SOL')
       return
     }
 
@@ -90,15 +109,15 @@ export default function Battles() {
       const newBattle = await createBattle({
         getAccessToken,
         walletAddress: wallet.address,
-        token: { mint: token.address, symbol: token.symbol, marketCap: token.mc },
+        token: { mint: token.mint },
         stakeSol: stake,
         durationSeconds: selectedDuration,
       })
       setBattles(currentBattles => [newBattle, ...currentBattles])
-      notify('success', 'Battle Created!', `${selectedToken} battle was saved`)
+      notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
       setCreateOpen(false)
-      setSelectedToken('')
-      setTokenSearch('')
+      setSelectedToken(null)
+      setTokenAddress('')
       setStakeAmount('5')
     } catch (error) {
       notify('error', 'Battle Not Created', error.message)
@@ -109,8 +128,8 @@ export default function Battles() {
 
   const openBattle = (battle) => {
     setViewBattle(battle)
-    const defaultToken = MOCK_TOKENS.find(token => token.symbol !== battle.tokenA.symbol)
-    setJoinToken(defaultToken?.symbol ?? '')
+    setJoinToken(null)
+    setJoinTokenAddress('')
   }
 
   const handleJoin = async () => {
@@ -118,9 +137,9 @@ export default function Battles() {
       notify('error', 'Wallet Required', 'Please connect your wallet before joining a battle')
       return
     }
-    const token = MOCK_TOKENS.find(item => item.symbol === joinToken)
+    const token = joinToken ?? await loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
     if (!token) {
-      notify('error', 'Token Required', 'Choose the token you want to battle with')
+      notify('error', 'Token Required', 'Enter a valid Pump.fun contract address')
       return
     }
 
@@ -130,7 +149,7 @@ export default function Battles() {
         getAccessToken,
         walletAddress: wallet.address,
         battleId: viewBattle.id,
-        token: { mint: token.address, symbol: token.symbol, marketCap: token.mc },
+        token: { mint: token.mint },
       })
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
       notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
@@ -208,35 +227,23 @@ export default function Battles() {
             <input
               type="text"
               className="form-input"
-              placeholder="Search pump.fun tokens..."
-              value={tokenSearch || selectedToken}
+              placeholder="Paste a Pump.fun contract address (CA)..."
+              value={tokenAddress}
               onChange={e => {
-                setTokenSearch(e.target.value)
-                setSelectedToken('')
-                setShowTokenResults(true)
+                setTokenAddress(e.target.value)
+                setSelectedToken(null)
               }}
-              onFocus={() => setShowTokenResults(true)}
-              onBlur={() => setTimeout(() => setShowTokenResults(false), 200)}
+              onBlur={() => loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
+                }
+              }}
             />
-            {showTokenResults && tokenResults.length > 0 && (
-              <div className="token-search-results">
-                {tokenResults.map(t => (
-                  <div
-                    key={t.symbol}
-                    className="token-result"
-                    onMouseDown={() => {
-                      setSelectedToken(t.symbol)
-                      setTokenSearch('')
-                      setShowTokenResults(false)
-                    }}
-                  >
-                    <span className="token-result-name">{t.symbol}</span>
-                    <span className="token-result-mc">{t.mc}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
+          {isLookingUpToken && <p className="form-hint">Checking Pump.fun...</p>}
+          {selectedToken && <p className="form-hint">Verified: {selectedToken.name} (${selectedToken.symbol}) · {formatMarketCap(selectedToken.marketCap)}</p>}
         </div>
 
         <div className="form-group">
@@ -361,15 +368,25 @@ export default function Battles() {
               <>
                 <div className="form-group">
                   <label className="form-label">Your Token</label>
-                  <select
+                  <input
+                    type="text"
                     className="form-input"
-                    value={joinToken}
-                    onChange={event => setJoinToken(event.target.value)}
-                  >
-                    {MOCK_TOKENS.filter(token => token.symbol !== viewBattle.tokenA.symbol).map(token => (
-                      <option key={token.symbol} value={token.symbol}>{token.symbol}</option>
-                    ))}
-                  </select>
+                    placeholder="Paste a Pump.fun contract address (CA)..."
+                    value={joinTokenAddress}
+                    onChange={event => {
+                      setJoinTokenAddress(event.target.value)
+                      setJoinToken(null)
+                    }}
+                    onBlur={() => loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
+                      }
+                    }}
+                  />
+                  {isLookingUpJoinToken && <p className="form-hint">Checking Pump.fun...</p>}
+                  {joinToken && <p className="form-hint">Verified: {joinToken.name} (${joinToken.symbol}) · {formatMarketCap(joinToken.marketCap)}</p>}
                 </div>
                 <button className="form-submit" onClick={handleJoin} disabled={isSubmitting}>
                   {isSubmitting ? 'SAVING...' : `⚔ JOIN BATTLE (${viewBattle.stake} SOL)`}
