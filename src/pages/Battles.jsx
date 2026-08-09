@@ -4,6 +4,7 @@ import Modal from '../components/Modal'
 import { MOCK_BATTLES, MOCK_TOKENS, DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
+import { fetchPublicBattles } from '../services/battles'
 import './Battles.css'
 
 export default function Battles() {
@@ -18,6 +19,22 @@ export default function Battles() {
   const [selectedToken, setSelectedToken] = useState('')
   const [tokenSearch, setTokenSearch] = useState('')
   const [showTokenResults, setShowTokenResults] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    fetchPublicBattles()
+      .then((remoteBattles) => {
+        if (!cancelled && remoteBattles?.length) setBattles(remoteBattles)
+      })
+      .catch(() => {
+        // Keep the existing display available if Supabase is not yet configured.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]
