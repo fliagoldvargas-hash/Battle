@@ -58,6 +58,7 @@ export default function Navbar() {
         onClick={handleWallet}
         disabled={!isReady}
         title={wallet.connected ? 'Disconnect wallet' : 'Connect wallet'}
+        aria-label={wallet.connected ? 'Disconnect wallet' : 'Connect wallet'}
       >
         {wallet.connected ? (
           <>
