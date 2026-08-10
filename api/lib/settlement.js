@@ -1,4 +1,5 @@
 import { PrivyClient } from '@privy-io/node'
+import { randomUUID } from 'node:crypto'
 import {
   address,
   appendTransactionMessageInstructions,
@@ -81,13 +82,37 @@ export async function settleFinishedBattles(supabase, limit = 25) {
 
   const results = []
   for (const battle of battles ?? []) {
+    // Claim the battle before talking to the signing service. More than one
+    // request can reach this worker at the same time (the public refresh,
+    // Vercel Cron, or a retry); only the request that writes this opaque
+    // marker is allowed to broadcast a payout transaction. This uses the
+    // existing nullable signature field, so the protection is live without a
+    // schema rollout.
+    const claimToken = `pending:${randomUUID()}`
+    const { data: claimedBattle, error: claimError } = await supabase
+      .from('battles')
+      .update({
+        settlement_signature: claimToken,
+        escrow_error: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', battle.id)
+      .eq('status', 'finished')
+      .eq('escrow_state', 'funded')
+      .is('settlement_signature', null)
+      .select('*')
+      .maybeSingle()
+
+    if (claimError) throw claimError
+    if (!claimedBattle) continue
+
     try {
-      const pot = Number(battle.pot_lamports)
+      const pot = Number(claimedBattle.pot_lamports)
       const fee = Math.floor(pot * 25 / 10_000)
-      const winnerWallet = battle.winner_mint === battle.token_a_mint
-        ? battle.creator_wallet
-        : battle.winner_mint === battle.token_b_mint
-          ? battle.opponent_wallet
+      const winnerWallet = claimedBattle.winner_mint === claimedBattle.token_a_mint
+        ? claimedBattle.creator_wallet
+        : claimedBattle.winner_mint === claimedBattle.token_b_mint
+          ? claimedBattle.opponent_wallet
           : null
       if (!winnerWallet) throw new Error('Battle winner is not available for settlement.')
       const payouts = [
@@ -101,16 +126,24 @@ export async function settleFinishedBattles(supabase, limit = 25) {
       const signatures = [await sendTransfer({ privy, walletId: settlement.walletId, transaction })]
       const { error: updateError } = await supabase.from('battles').update({
         settlement_signature: signatures.join(','),
-        escrow_state: battle.winner_mint ? 'settled' : 'refunded',
+        escrow_state: claimedBattle.winner_mint ? 'settled' : 'refunded',
         escrow_error: null,
         updated_at: new Date().toISOString(),
-      }).eq('id', battle.id).eq('status', 'finished')
+      }).eq('id', claimedBattle.id).eq('status', 'finished').eq('settlement_signature', claimToken)
       if (updateError) throw updateError
-      results.push({ id: battle.id, signatures })
+      results.push({ id: claimedBattle.id, signatures })
     } catch (battleError) {
-      console.error('Battle settlement failed', { battleId: battle.id, error: battleError })
-      await supabase.from('battles').update({ escrow_state: 'error', escrow_error: 'settlement_failed' }).eq('id', battle.id)
-      results.push({ id: battle.id, error: 'settlement_failed' })
+      console.error('Battle settlement failed', { battleId: claimedBattle.id, error: battleError })
+      // Do not retry an ambiguous signing/broadcast failure automatically:
+      // the transaction might already be on-chain even if the response was
+      // lost. Keeping the claim token prevents a second payout and leaves an
+      // explicit record for reconciliation.
+      await supabase.from('battles').update({
+        escrow_state: 'error',
+        escrow_error: 'settlement_requires_review',
+        updated_at: new Date().toISOString(),
+      }).eq('id', claimedBattle.id).eq('settlement_signature', claimToken)
+      results.push({ id: claimedBattle.id, error: 'settlement_requires_review' })
     }
   }
   return results
