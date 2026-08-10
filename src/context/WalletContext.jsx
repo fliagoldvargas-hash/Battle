@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
@@ -17,6 +17,7 @@ export function WalletProvider({ children }) {
   const { wallets, ready: walletsReady } = useWallets()
   const { signAndSendTransaction } = useSignAndSendTransaction()
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
+  const authenticationInFlight = useRef(false)
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
     // Privy rejects a second SIWS login while the current session is active.
@@ -24,7 +25,8 @@ export function WalletProvider({ children }) {
     const alreadyLinked = user?.linkedAccounts?.some((linkedAccount) => (
       linkedAccount.type === 'wallet' && linkedAccount.address === solanaWallet.address
     ))
-    if (authenticated && alreadyLinked) return
+    if ((authenticated && alreadyLinked) || authenticationInFlight.current) return
+    authenticationInFlight.current = true
     try {
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
@@ -37,6 +39,8 @@ export function WalletProvider({ children }) {
       console.error('Solana wallet authentication failed', error)
       const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
       notify('error', 'Wallet Authentication Failed', message)
+    } finally {
+      authenticationInFlight.current = false
     }
   }, [authenticated, generateSiwsMessage, loginWithSiws, user])
 
