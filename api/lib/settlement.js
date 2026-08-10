@@ -32,18 +32,19 @@ function config() {
   return { ...escrow, walletId, appId, appSecret }
 }
 
-async function buildTransfer({ rpc, source, destination, lamports }) {
+async function buildPayoutTransaction({ rpc, source, payouts }) {
   const { value: blockhash } = await rpc.getLatestBlockhash().send()
-  const instruction = getTransferSolInstruction({
-    source: createNoopSigner(address(source)),
-    destination: address(destination),
-    amount: BigInt(lamports),
-  })
+  const sourceSigner = createNoopSigner(address(source))
+  const instructions = payouts.map((payout) => getTransferSolInstruction({
+    source: sourceSigner,
+    destination: address(payout.wallet),
+    amount: BigInt(payout.amount),
+  }))
   const message = pipe(
     createTransactionMessage({ version: 0 }),
     (value) => setTransactionMessageFeePayer(address(source), value),
     (value) => setTransactionMessageLifetimeUsingBlockhash(blockhash, value),
-    (value) => appendTransactionMessageInstructions([instruction], value),
+    (value) => appendTransactionMessageInstructions(instructions, value),
   )
   return Buffer.from(getTransactionEncoder().encode(compileTransaction(message))).toString('base64')
 }
@@ -86,12 +87,11 @@ export async function settleFinishedBattles(supabase, limit = 25) {
               { wallet: battle.creator_wallet, amount: stake },
               { wallet: battle.opponent_wallet, amount: stake },
             ]
-      const signatures = []
       for (const payout of payouts) {
         if (!payout.wallet || !Number.isSafeInteger(payout.amount) || payout.amount <= 0) throw new Error('Invalid battle payout.')
-        const transaction = await buildTransfer({ rpc, source: settlement.treasury, destination: payout.wallet, lamports: payout.amount })
-        signatures.push(await sendTransfer({ privy, walletId: settlement.walletId, transaction }))
       }
+      const transaction = await buildPayoutTransaction({ rpc, source: settlement.treasury, payouts })
+      const signatures = [await sendTransfer({ privy, walletId: settlement.walletId, transaction })]
       const { error: updateError } = await supabase.from('battles').update({
         settlement_signature: signatures.join(','),
         escrow_state: battle.winner_mint ? 'settled' : 'refunded',
@@ -108,4 +108,3 @@ export async function settleFinishedBattles(supabase, limit = 25) {
   }
   return results
 }
-
