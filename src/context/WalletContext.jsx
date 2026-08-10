@@ -3,6 +3,7 @@ import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-au
 import { useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
+import { sendEscrowDeposit } from '../services/escrow'
 
 function signatureToBase64(signature) {
   if (typeof signature === 'string') return signature
@@ -74,11 +75,17 @@ export function WalletProvider({ children }) {
     notify('info', 'Wallet Disconnected', 'Your Privy session has been closed')
   }, [logout])
 
+  const depositStake = useCallback((lamports) => {
+    if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
+    return sendEscrowDeposit({ wallet: activeWallet, lamports })
+  }, [activeWallet])
+
   return (
     <WalletContext.Provider value={{
       wallet,
       connect,
       disconnect,
+      depositStake,
       getAccessToken,
       isReady: privyReady && walletsReady,
       isConfigured: true,
@@ -97,6 +104,7 @@ export function WalletUnavailableProvider({ children }) {
     wallet: { connected: false, address: '', balance: null, provider: null },
     connect,
     disconnect: () => {},
+    depositStake: async () => { throw new Error('Privy is not configured.') },
     getAccessToken: async () => null,
     isReady: true,
     isConfigured: false,
