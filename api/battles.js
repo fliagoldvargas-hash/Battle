@@ -59,7 +59,7 @@ async function authenticateRequest(request, privy) {
 }
 
 function verifiedSolanaWallet(user, walletAddress) {
-  const account = user.linked_accounts.find((linkedAccount) => (
+  const account = user.linked_accounts?.find((linkedAccount) => (
     linkedAccount.type === 'wallet'
     && linkedAccount.chain_type === 'solana'
     && linkedAccount.address === walletAddress
