@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/battles",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

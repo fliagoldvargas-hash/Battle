@@ -1,7 +1,17 @@
-import { MOCK_LEADERBOARD } from '../data/mockData'
+import { useEffect, useState } from 'react'
+import { fetchLeaderboard } from '../services/analytics'
+import { notify } from '../components/notificationService'
 import './Leaderboard.css'
 
 export default function Leaderboard() {
+  const [leaderboard, setLeaderboard] = useState([])
+
+  useEffect(() => {
+    fetchLeaderboard()
+      .then(setLeaderboard)
+      .catch((error) => notify('error', 'Leaderboard Unavailable', error.message))
+  }, [])
+
   const getRankClass = (rank) => {
     if (rank === 1) return 'gold'
     if (rank === 2) return 'silver'
@@ -26,7 +36,7 @@ export default function Leaderboard() {
       <div className="leaderboard-container">
         {/* Top 3 podium */}
         <div className="podium">
-          {MOCK_LEADERBOARD.slice(0, 3).map(entry => (
+          {leaderboard.slice(0, 3).map(entry => (
             <div key={entry.rank} className={`podium-card podium-${entry.rank}`}>
               <div className="podium-medal">{getMedal(entry.rank)}</div>
               <div className="podium-rank-badge">{getRankClass(entry.rank).toUpperCase()}</div>
@@ -55,7 +65,7 @@ export default function Leaderboard() {
             <div>Win Rate</div>
             <div className="lb-staked-col">Staked</div>
           </div>
-          {MOCK_LEADERBOARD.map((entry, i) => (
+          {leaderboard.map((entry, i) => (
             <div
               key={entry.rank}
               className="lb-row animate-in"

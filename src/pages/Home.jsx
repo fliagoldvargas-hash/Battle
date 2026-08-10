@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { fetchPlatformStats } from '../services/analytics'
 import './Home.css'
 
 export default function Home() {
   const navigate = useNavigate()
   const [perfA, setPerfA] = useState(42.7)
   const [perfB, setPerfB] = useState(31.2)
+  const [stats, setStats] = useState(null)
   const particles = useMemo(() => Array.from({ length: 20 }, () => ({
     left: `${Math.random() * 100}%`,
     top: `${Math.random() * 100}%`,
@@ -22,6 +24,10 @@ export default function Home() {
       setPerfB(prev => +(prev + (Math.random() - 0.55) * 2).toFixed(1))
     }, 2000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    fetchPlatformStats().then(setStats).catch(() => {})
   }, [])
 
   return (
@@ -94,17 +100,17 @@ export default function Home() {
 
         <div className="hero-stats">
           <div className="hero-stat">
-            <span className="hero-stat-value">2,847</span>
+            <span className="hero-stat-value">{stats?.battles ?? '—'}</span>
             <span className="hero-stat-label">Battles Created</span>
           </div>
           <div className="hero-stat-divider" />
           <div className="hero-stat">
-            <span className="hero-stat-value">14,203 SOL</span>
+            <span className="hero-stat-value">{stats ? `${stats.volume.toFixed(2)} SOL` : '—'}</span>
             <span className="hero-stat-label">Total Volume</span>
           </div>
           <div className="hero-stat-divider" />
           <div className="hero-stat">
-            <span className="hero-stat-value">1,429</span>
+            <span className="hero-stat-value">{stats?.warriors ?? '—'}</span>
             <span className="hero-stat-label">Active Warriors</span>
           </div>
         </div>

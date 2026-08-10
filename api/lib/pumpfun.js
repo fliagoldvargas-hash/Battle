@@ -45,11 +45,17 @@ export async function getPumpFunToken(mint) {
   }
 
   const marketCap = Number(coin.usd_market_cap ?? coin.market_cap)
+  const totalSupply = Number(coin.total_supply ?? coin.total_supply_str)
+  const priceUsd = Number.isFinite(marketCap) && Number.isFinite(totalSupply) && totalSupply > 0
+    ? marketCap / totalSupply
+    : null
   return {
     mint: coin.mint,
     name: typeof coin.name === 'string' ? coin.name : coin.symbol,
     symbol: coin.symbol.slice(0, 32),
     marketCap: Number.isFinite(marketCap) && marketCap >= 0 ? marketCap : null,
+    priceUsd: Number.isFinite(priceUsd) && priceUsd >= 0 ? priceUsd : null,
+    totalSupply: Number.isFinite(totalSupply) && totalSupply >= 0 ? totalSupply : null,
     imageUrl: typeof coin.image_uri === 'string' ? coin.image_uri : null,
     complete: Boolean(coin.complete),
   }

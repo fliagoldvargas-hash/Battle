@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
-import { MOCK_BATTLES, DURATIONS } from '../data/mockData'
+import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
@@ -31,10 +31,10 @@ export default function Battles() {
 
     fetchPublicBattles()
       .then((remoteBattles) => {
-        if (!cancelled) setBattles(remoteBattles ?? MOCK_BATTLES)
+        if (!cancelled) setBattles(remoteBattles ?? [])
       })
-      .catch(() => {
-        // Keep the existing display available if Supabase is not yet configured.
+      .catch((error) => {
+        if (!cancelled) notify('error', 'Battles Unavailable', error.message)
       })
 
     return () => {

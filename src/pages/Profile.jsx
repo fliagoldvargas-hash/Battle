@@ -1,9 +1,21 @@
+import { useEffect, useState } from 'react'
 import { useWallet } from '../context/useWallet'
-import { MOCK_HISTORY } from '../data/mockData'
+import { fetchWalletStats } from '../services/analytics'
+import { notify } from '../components/notificationService'
 import './Profile.css'
 
 export default function Profile() {
   const { wallet } = useWallet()
+  const [stats, setStats] = useState(null)
+
+  useEffect(() => {
+    if (!wallet.connected) return undefined
+    let cancelled = false
+    fetchWalletStats(wallet.address)
+      .then((result) => { if (!cancelled) setStats(result) })
+      .catch((error) => notify('error', 'Profile Unavailable', error.message))
+    return () => { cancelled = true }
+  }, [wallet.address, wallet.connected])
 
   if (!wallet.connected) {
     return (
@@ -45,27 +57,27 @@ export default function Profile() {
           </div>
           <div className="stats-grid">
             <div className="stat-card">
-              <div className="stat-value violet">42</div>
+              <div className="stat-value violet">{stats?.totalBattles ?? '—'}</div>
               <div className="stat-label">Total Battles</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value green">27</div>
+              <div className="stat-value green">{stats?.wins ?? '—'}</div>
               <div className="stat-label">Wins</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value red">15</div>
+              <div className="stat-value red">{stats?.losses ?? '—'}</div>
               <div className="stat-label">Losses</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value gold">64.3%</div>
+              <div className="stat-value gold">{stats ? `${stats.winRate.toFixed(1)}%` : '—'}</div>
               <div className="stat-label">Win Rate</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value violet">84 SOL</div>
+              <div className="stat-value violet">{stats ? `${stats.totalStaked.toFixed(2)} SOL` : '—'}</div>
               <div className="stat-label">Total Staked</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value green">101.4 SOL</div>
+              <div className="stat-value green">—</div>
               <div className="stat-label">Total Won</div>
             </div>
           </div>
@@ -74,9 +86,9 @@ export default function Profile() {
         <div className="profile-card animate-in stagger-2">
           <h3 className="section-heading">Battle History</h3>
           <div className="history-list">
-            {MOCK_HISTORY.map((item, i) => (
+            {(stats?.history ?? []).map((item, i) => (
               <div
-                key={i}
+                key={item.id}
                 className="history-item animate-in"
                 style={{ animationDelay: `${0.3 + i * 0.08}s` }}
               >
