@@ -21,7 +21,10 @@ export function WalletProvider({ children }) {
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
     // Privy rejects a second SIWS login while the current session is active.
     // This also prevents a reconnect click from showing a false auth error.
-    if (authenticated) return
+    const alreadyLinked = user?.linkedAccounts?.some((linkedAccount) => (
+      linkedAccount.type === 'wallet' && linkedAccount.address === solanaWallet.address
+    ))
+    if (authenticated && alreadyLinked) return
     try {
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
@@ -35,7 +38,7 @@ export function WalletProvider({ children }) {
       const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
       notify('error', 'Wallet Authentication Failed', message)
     }
-  }, [authenticated, generateSiwsMessage, loginWithSiws])
+  }, [authenticated, generateSiwsMessage, loginWithSiws, user])
 
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet: connectedWallet }) => {
@@ -62,9 +65,9 @@ export function WalletProvider({ children }) {
       return
     }
 
-    if (authenticated) return
+    if (authenticated && activeWallet) return
 
-    const connectedSolanaWallet = wallets[0]
+    const connectedSolanaWallet = wallets.find((connectedWallet) => connectedWallet.chainType === 'solana') ?? wallets[0]
     if (connectedSolanaWallet) {
       void authenticateSolanaWallet(connectedSolanaWallet)
       return
@@ -74,7 +77,7 @@ export function WalletProvider({ children }) {
       walletList: ['phantom', 'solflare'],
       walletChainType: 'solana-only',
     })
-  }, [authenticated, authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
+  }, [activeWallet, authenticated, authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
 
   const disconnect = useCallback(async () => {
     await logout()

@@ -297,12 +297,18 @@ export default function Battles() {
         </div>
 
         <div className="stake-display">
-          <span className="stake-display-label">Total Pot (when matched)</span>
-          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
-          <span className="stake-display-label">Platform fee (0.25%)</span>
-          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
-          <span className="stake-display-label">Winner receives</span>
-          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
+          <div className="stake-stat">
+            <span className="stake-display-label">Total pot <span>(matched)</span></span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
+          </div>
+          <div className="stake-stat">
+            <span className="stake-display-label">Platform fee <span>(0.25%)</span></span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
+          </div>
+          <div className="stake-stat">
+            <span className="stake-display-label">Winner receives</span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
+          </div>
         </div>
 
         <button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>

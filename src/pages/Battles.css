@@ -265,21 +265,39 @@
   border-radius: 10px;
   padding: 1rem;
   margin-bottom: 1.25rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.stake-stat {
+  min-width: 0;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  flex-direction: column;
+  gap: 0.35rem;
 }
 
 .stake-display-label {
   color: var(--muted);
   font-size: 0.8rem;
+  line-height: 1.25;
 }
+
+.stake-display-label span { display: block; }
 
 .stake-display-value {
   font-family: 'JetBrains Mono', monospace;
   font-size: 1.2rem;
   font-weight: 700;
   color: var(--green);
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .stake-display {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
 }
 
 /* Form submit */
