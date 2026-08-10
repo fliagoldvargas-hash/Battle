@@ -26,6 +26,17 @@ export async function fetchWalletStats(walletAddress) {
     || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
   )).length
   const stakedLamports = rows.reduce((sum, battle) => sum + Number(battle.stake_lamports || 0), 0)
+  const totalWonLamports = finished.reduce((sum, battle) => {
+    const winner = (
+      (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
+      || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
+    )
+    if (winner) return sum + Number(battle.pot_lamports || 0)
+    if (!battle.winner_mint && (battle.creator_wallet === walletAddress || battle.opponent_wallet === walletAddress)) {
+      return sum + Number(battle.stake_lamports || 0)
+    }
+    return sum
+  }, 0)
 
   return {
     totalBattles: rows.length,
@@ -33,15 +44,23 @@ export async function fetchWalletStats(walletAddress) {
     losses: Math.max(0, finished.length - wins),
     winRate: finished.length ? (wins / finished.length) * 100 : 0,
     totalStaked: stakedLamports / LAMPORTS_PER_SOL,
+    totalWon: totalWonLamports / LAMPORTS_PER_SOL,
     history: finished.map((battle) => ({
       id: battle.id,
       tokens: `${battle.token_a_symbol} vs ${battle.token_b_symbol || '—'}`,
       perf: `${battle.token_a_change_pct == null ? '—' : `${Number(battle.token_a_change_pct).toFixed(2)}%`} vs ${battle.token_b_change_pct == null ? '—' : `${Number(battle.token_b_change_pct).toFixed(2)}%`}`,
-      result: (
+      result: !battle.winner_mint ? 'draw' : (
         (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
         || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
       ) ? 'win' : 'loss',
-      amount: '—',
+      amount: !battle.winner_mint
+        ? `+${(Number(battle.stake_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`
+        : (
+          (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
+          || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
+        )
+          ? `+${(Number(battle.pot_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`
+          : `-${(Number(battle.stake_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`,
     })),
   }
 }

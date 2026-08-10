@@ -77,7 +77,7 @@ export default function Profile() {
               <div className="stat-label">Total Staked</div>
             </div>
             <div className="stat-card">
-              <div className="stat-value green">—</div>
+              <div className="stat-value green">{stats ? `${stats.totalWon.toFixed(2)} SOL` : '—'}</div>
               <div className="stat-label">Total Won</div>
             </div>
           </div>
