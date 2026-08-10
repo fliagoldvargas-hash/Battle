@@ -32,7 +32,7 @@ export async function assertCronRequest(request) {
       const validWorkflow = payload.repository === githubRepository
         && payload.ref === 'refs/heads/main'
         && payload.workflow_ref === githubWorkflowRef
-        && (payload.event_name === 'schedule' || payload.event_name === 'workflow_dispatch')
+        && (payload.event_name === 'schedule' || payload.event_name === 'workflow_dispatch' || payload.event_name === 'push')
       if (validWorkflow) return
     } catch {
       // Continue to the single unauthorized response below. Do not leak token

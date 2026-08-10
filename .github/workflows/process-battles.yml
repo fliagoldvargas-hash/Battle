@@ -1,6 +1,11 @@
 name: Process token battles
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/process-battles.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
