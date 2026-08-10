@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
 import { DURATIONS } from '../data/mockData'
@@ -26,21 +26,32 @@ export default function Battles() {
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
+  const refreshBattles = useCallback(async () => {
+    const remoteBattles = await fetchPublicBattles()
+    setBattles(remoteBattles ?? [])
+  }, [])
+
   useEffect(() => {
     let cancelled = false
-
-    fetchPublicBattles()
-      .then((remoteBattles) => {
+    const load = async () => {
+      try {
+        const remoteBattles = await fetchPublicBattles()
         if (!cancelled) setBattles(remoteBattles ?? [])
-      })
-      .catch((error) => {
+      } catch (error) {
         if (!cancelled) notify('error', 'Battles Unavailable', error.message)
-      })
+      }
+    }
+
+    void load()
+    const interval = setInterval(() => {
+      void refreshBattles().catch(() => {})
+    }, 30_000)
 
     return () => {
       cancelled = true
+      clearInterval(interval)
     }
-  }, [])
+  }, [refreshBattles])
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]
