@@ -156,6 +156,18 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
     throw error
   }
 
+  try {
+    const escrow = escrowConfiguration()
+    if (escrow.required && existingBattle.escrow_state !== 'awaiting_deposits') {
+      const error = new Error('This battle was created before escrow was enabled and cannot accept deposits.')
+      error.status = 409
+      throw error
+    }
+  } catch (error) {
+    if (error.status) throw error
+    if (process.env.ESCROW_REQUIRED === 'true') throw error
+  }
+
   const startsAt = new Date()
   const endsAt = new Date(startsAt.getTime() + existingBattle.duration_seconds * 1000)
   const deposit = await verifyOptionalDeposit({
