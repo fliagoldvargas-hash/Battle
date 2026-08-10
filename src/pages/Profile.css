@@ -151,11 +151,6 @@
   color: var(--red);
 }
 
-.result-draw {
-  background: var(--gold-glow);
-  color: var(--gold);
-}
-
 .history-amount {
   font-family: 'JetBrains Mono', monospace;
   font-size: 0.85rem;

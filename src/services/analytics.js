@@ -32,9 +32,6 @@ export async function fetchWalletStats(walletAddress) {
       || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
     )
     if (winner) return sum + Number(battle.pot_lamports || 0)
-    if (!battle.winner_mint && (battle.creator_wallet === walletAddress || battle.opponent_wallet === walletAddress)) {
-      return sum + Number(battle.stake_lamports || 0)
-    }
     return sum
   }, 0)
 
@@ -48,14 +45,12 @@ export async function fetchWalletStats(walletAddress) {
     history: finished.map((battle) => ({
       id: battle.id,
       tokens: `${battle.token_a_symbol} vs ${battle.token_b_symbol || '—'}`,
-      perf: `${battle.token_a_change_pct == null ? '—' : `${Number(battle.token_a_change_pct).toFixed(2)}%`} vs ${battle.token_b_change_pct == null ? '—' : `${Number(battle.token_b_change_pct).toFixed(2)}%`}`,
-      result: !battle.winner_mint ? 'draw' : (
+      perf: `${battle.token_a_change_pct == null ? '—' : `${Number(battle.token_a_change_pct).toFixed(4)}%`} vs ${battle.token_b_change_pct == null ? '—' : `${Number(battle.token_b_change_pct).toFixed(4)}%`}`,
+      result: (
         (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
         || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
       ) ? 'win' : 'loss',
-      amount: !battle.winner_mint
-        ? `+${(Number(battle.stake_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`
-        : (
+      amount: (
           (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
           || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
         )

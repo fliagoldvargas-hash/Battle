@@ -67,7 +67,7 @@ export default function BattleCard({ battle, onClick }) {
             <div className="token-mc">MC: {battle.tokenA.mc}</div>
             {battle.tokenA.perf !== undefined && (
               <div className={`token-perf ${battle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
-                {battle.tokenA.perf >= 0 ? '+' : ''}{battle.tokenA.perf}%
+                {battle.tokenA.perf >= 0 ? '+' : ''}{Number(battle.tokenA.perf).toFixed(4)}%
               </div>
             )}
           </div>
@@ -80,7 +80,7 @@ export default function BattleCard({ battle, onClick }) {
               <div className="token-mc">MC: {battle.tokenB.mc}</div>
               {battle.tokenB.perf !== undefined && (
                 <div className={`token-perf ${battle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
-                  {battle.tokenB.perf >= 0 ? '+' : ''}{battle.tokenB.perf}%
+                {battle.tokenB.perf >= 0 ? '+' : ''}{Number(battle.tokenB.perf).toFixed(4)}%
                 </div>
               )}
             </div>

@@ -71,7 +71,6 @@ declare_id!(<span className="code-str">"TBat1eXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 <span className="code-comment">// ─── CONSTANTS ───────────────────────────────</span>
 <span className="code-kw">const</span> PROTOCOL_FEE_BPS: <span className="code-type">u64</span> = <span className="code-num">200</span>;  <span className="code-comment">// 2% fee (basis points)</span>
 <span className="code-kw">const</span> MAX_MC_DIFF_BPS: <span className="code-type">u64</span> = <span className="code-num">5000</span>; <span className="code-comment">// 50% max market cap difference</span>
-<span className="code-kw">const</span> DRAW_PRECISION: <span className="code-type">u64</span> = <span className="code-num">100</span>;   <span className="code-comment">// 2 decimal precision for draw check</span>
 
 <span className="code-comment">// ─── BATTLE STATES ───────────────────────────</span>
 <span className="code-kw">#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]</span>

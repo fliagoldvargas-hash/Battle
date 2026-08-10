@@ -5,6 +5,14 @@ function performancePercent(current, initial) {
   return Number((((current - initial) / initial) * 100).toFixed(4))
 }
 
+function selectWinner(changeA, changeB, mintA, mintB) {
+  if (changeA == null || changeB == null) return null
+  if (changeA !== changeB) return changeA > changeB ? mintA : mintB
+  // The displayed score is fixed to four decimals. If those values match,
+  // use the mint as a deterministic final ordering so every battle resolves.
+  return String(mintA).localeCompare(String(mintB)) > 0 ? mintA : mintB
+}
+
 async function processBattle(supabase, battle) {
   const [tokenA, tokenB] = await Promise.all([
     getPumpFunToken(battle.token_a_mint),
@@ -26,12 +34,13 @@ async function processBattle(supabase, battle) {
     token_b_change_pct: changeB,
     updated_at: new Date().toISOString(),
   }
-  if (ended) {
-    const winner = changeA == null || changeB == null || changeA === changeB
-      ? null
-      : changeA > changeB
-        ? { mint: battle.token_a_mint, symbol: battle.token_a_symbol }
-        : { mint: battle.token_b_mint, symbol: battle.token_b_symbol }
+  if (ended && changeA != null && changeB != null) {
+    const winnerMint = selectWinner(changeA, changeB, battle.token_a_mint, battle.token_b_mint)
+    const winner = winnerMint === battle.token_a_mint
+      ? { mint: battle.token_a_mint, symbol: battle.token_a_symbol }
+      : winnerMint === battle.token_b_mint
+        ? { mint: battle.token_b_mint, symbol: battle.token_b_symbol }
+        : null
     Object.assign(update, {
       status: 'finished',
       winner_mint: winner?.mint ?? null,
@@ -64,4 +73,3 @@ export async function processActiveBattles(supabase, limit = 100) {
   }
   return results
 }
-
