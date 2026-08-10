@@ -103,6 +103,7 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
     walletAddress,
     expectedLamports: stakeLamports,
   })
+  await assertDepositIsUnused(supabase, deposit?.signature)
 
   const { data, error } = await supabase
     .from('battles')
@@ -175,6 +176,7 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
     walletAddress,
     expectedLamports: Number(existingBattle.stake_lamports),
   })
+  await assertDepositIsUnused(supabase, deposit?.signature)
   const { data, error } = await supabase
     .from('battles')
     .update({
@@ -209,6 +211,21 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
     throw conflict
   }
   return data
+}
+
+async function assertDepositIsUnused(supabase, signature) {
+  if (!signature) return
+  const { data, error } = await supabase
+    .from('battles')
+    .select('id')
+    .or(`creator_deposit_signature.eq.${signature},opponent_deposit_signature.eq.${signature}`)
+    .limit(1)
+  if (error) throw error
+  if (data?.length) {
+    const replayError = new Error('This Solana deposit has already been used for another battle.')
+    replayError.status = 409
+    throw replayError
+  }
 }
 
 async function verifyOptionalDeposit({ signature, walletAddress, expectedLamports }) {

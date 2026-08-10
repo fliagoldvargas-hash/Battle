@@ -93,6 +93,18 @@ export async function verifyStakeTransfer({ signature, walletAddress, expectedLa
 
 export async function recordDeposit({ supabase, battleId, walletAddress, role, signature, expectedLamports }) {
   const verified = await verifyStakeTransfer({ signature, walletAddress, expectedLamports })
+  const { data: existing, error: lookupError } = await supabase
+    .from('battles')
+    .select('id')
+    .or(`creator_deposit_signature.eq.${verified.signature},opponent_deposit_signature.eq.${verified.signature}`)
+    .neq('id', battleId)
+    .limit(1)
+  if (lookupError) throw lookupError
+  if (existing?.length) {
+    const error = new Error('This Solana deposit has already been used for another battle.')
+    error.status = 409
+    throw error
+  }
   const signatureColumn = role === 'creator' ? 'creator_deposit_signature' : 'opponent_deposit_signature'
   const { data, error } = await supabase
     .from('battles')
@@ -108,6 +120,11 @@ export async function recordDeposit({ supabase, battleId, walletAddress, role, s
     .select('*')
     .single()
   if (error) {
+    if (error.code === '23505') {
+      const replayError = new Error('This Solana deposit has already been used for another battle.')
+      replayError.status = 409
+      throw replayError
+    }
     if (error.code === '42703') {
       const schemaError = configurationError('Escrow metadata is not installed in Supabase. Apply supabase/migrations/20260810010000_escrow_metadata.sql first.')
       schemaError.code = 'ESCROW_SCHEMA_NOT_APPLIED'
@@ -117,4 +134,3 @@ export async function recordDeposit({ supabase, battleId, walletAddress, role, s
   }
   return { battle: data, verified }
 }
-

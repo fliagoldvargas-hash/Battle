@@ -57,6 +57,12 @@ create table if not exists public.battle_price_snapshots (
 create index if not exists battles_status_created_at_idx on public.battles (status, created_at desc);
 create index if not exists battle_price_snapshots_battle_id_captured_at_idx on public.battle_price_snapshots (battle_id, captured_at desc);
 create index if not exists battles_escrow_state_idx on public.battles (escrow_state, ends_at);
+create unique index if not exists battles_creator_deposit_signature_uidx
+  on public.battles (creator_deposit_signature)
+  where creator_deposit_signature is not null;
+create unique index if not exists battles_opponent_deposit_signature_uidx
+  on public.battles (opponent_deposit_signature)
+  where opponent_deposit_signature is not null;
 
 alter table public.battles enable row level security;
 alter table public.battle_price_snapshots enable row level security;
