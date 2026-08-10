@@ -1,6 +1,7 @@
 import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from './lib/pumpfun.js'
+import { escrowConfiguration, verifyStakeTransfer } from './lib/escrow.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000
@@ -96,6 +97,11 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
   assertCreatePayload(payload)
   const token = await getPumpFunToken(payload.token.mint)
   const stakeLamports = parseStakeLamports(payload.stakeSol)
+  const deposit = await verifyOptionalDeposit({
+    signature: payload.depositSignature,
+    walletAddress,
+    expectedLamports: stakeLamports,
+  })
 
   const { data, error } = await supabase
     .from('battles')
@@ -109,6 +115,12 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
       stake_lamports: stakeLamports,
       pot_lamports: stakeLamports,
       duration_seconds: payload.durationSeconds,
+      ...(deposit ? {
+        escrow_state: 'awaiting_deposits',
+        escrow_account: deposit.treasury,
+        escrow_program_id: deposit.programId,
+        creator_deposit_signature: deposit.signature,
+      } : {}),
     })
     .select('*')
     .single()
@@ -145,6 +157,11 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
 
   const startsAt = new Date()
   const endsAt = new Date(startsAt.getTime() + existingBattle.duration_seconds * 1000)
+  const deposit = await verifyOptionalDeposit({
+    signature: payload.depositSignature,
+    walletAddress,
+    expectedLamports: Number(existingBattle.stake_lamports),
+  })
   const { data, error } = await supabase
     .from('battles')
     .update({
@@ -159,6 +176,12 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
       starts_at: startsAt.toISOString(),
       ends_at: endsAt.toISOString(),
       updated_at: startsAt.toISOString(),
+      ...(deposit ? {
+        escrow_state: 'funded',
+        escrow_account: deposit.treasury,
+        escrow_program_id: deposit.programId,
+        opponent_deposit_signature: deposit.signature,
+      } : {}),
     })
     .eq('id', existingBattle.id)
     .eq('status', 'waiting')
@@ -173,6 +196,26 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
     throw conflict
   }
   return data
+}
+
+async function verifyOptionalDeposit({ signature, walletAddress, expectedLamports }) {
+  const hasSignature = typeof signature === 'string' && signature.length > 0
+  let config
+  try {
+    config = escrowConfiguration()
+  } catch (error) {
+    if (hasSignature || process.env.ESCROW_REQUIRED === 'true') throw error
+    return null
+  }
+  if (!hasSignature) {
+    if (config.required) {
+      const error = new Error('Deposit the stake in escrow before creating or joining this battle.')
+      error.status = 400
+      throw error
+    }
+    return null
+  }
+  return verifyStakeTransfer({ signature, walletAddress, expectedLamports })
 }
 
 export default async function handler(request, response) {

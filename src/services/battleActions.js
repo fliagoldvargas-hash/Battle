@@ -31,6 +31,7 @@ export function createBattle(input) {
       token: input.token,
       stakeSol: input.stakeSol,
       durationSeconds: input.durationSeconds,
+      depositSignature: input.depositSignature,
     },
   })
 }
@@ -43,6 +44,7 @@ export function joinBattle(input) {
       action: 'join',
       battleId: input.battleId,
       token: input.token,
+      depositSignature: input.depositSignature,
     },
   })
 }

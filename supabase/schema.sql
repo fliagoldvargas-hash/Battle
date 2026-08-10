@@ -32,9 +32,17 @@ create table if not exists public.battles (
   ends_at timestamptz,
   winner_mint text,
   winner_symbol text,
+  escrow_state text not null default 'not_configured',
+  escrow_program_id text,
+  escrow_account text,
+  creator_deposit_signature text,
+  opponent_deposit_signature text,
+  settlement_signature text,
+  escrow_error text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check ((status = 'waiting' and opponent_wallet is null and opponent_privy_user_id is null and token_b_mint is null) or status <> 'waiting')
+  ,check (escrow_state in ('not_configured', 'awaiting_deposits', 'funded', 'settled', 'refunded', 'error'))
 );
 
 create table if not exists public.battle_price_snapshots (
@@ -48,6 +56,7 @@ create table if not exists public.battle_price_snapshots (
 
 create index if not exists battles_status_created_at_idx on public.battles (status, created_at desc);
 create index if not exists battle_price_snapshots_battle_id_captured_at_idx on public.battle_price_snapshots (battle_id, captured_at desc);
+create index if not exists battles_escrow_state_idx on public.battles (escrow_state, ends_at);
 
 alter table public.battles enable row level security;
 alter table public.battle_price_snapshots enable row level security;

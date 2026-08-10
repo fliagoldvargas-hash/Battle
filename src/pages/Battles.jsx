@@ -10,7 +10,7 @@ import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
 export default function Battles() {
-  const { wallet, getAccessToken } = useWallet()
+  const { wallet, getAccessToken, depositStake, escrowConfigured } = useWallet()
   const [battles, setBattles] = useState([])
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -106,12 +106,16 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
+      const depositSignature = escrowConfigured
+        ? await depositStake(Math.round(stake * 1_000_000_000))
+        : null
       const newBattle = await createBattle({
         getAccessToken,
         walletAddress: wallet.address,
         token: { mint: token.mint },
         stakeSol: stake,
         durationSeconds: selectedDuration,
+        depositSignature,
       })
       setBattles(currentBattles => [newBattle, ...currentBattles])
       notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
@@ -145,11 +149,15 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
+      const depositSignature = escrowConfigured
+        ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000))
+        : null
       const joinedBattle = await joinBattle({
         getAccessToken,
         walletAddress: wallet.address,
         battleId: viewBattle.id,
         token: { mint: token.mint },
+        depositSignature,
       })
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
       notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)

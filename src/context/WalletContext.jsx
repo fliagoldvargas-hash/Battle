@@ -80,12 +80,15 @@ export function WalletProvider({ children }) {
     return sendEscrowDeposit({ wallet: activeWallet, lamports })
   }, [activeWallet])
 
+  const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
+
   return (
     <WalletContext.Provider value={{
       wallet,
       connect,
       disconnect,
       depositStake,
+      escrowConfigured,
       getAccessToken,
       isReady: privyReady && walletsReady,
       isConfigured: true,
@@ -105,6 +108,7 @@ export function WalletUnavailableProvider({ children }) {
     connect,
     disconnect: () => {},
     depositStake: async () => { throw new Error('Privy is not configured.') },
+    escrowConfigured: false,
     getAccessToken: async () => null,
     isReady: true,
     isConfigured: false,
