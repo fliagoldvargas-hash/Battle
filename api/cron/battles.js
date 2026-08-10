@@ -1,5 +1,6 @@
 import { assertCronRequest, createServerSupabase } from '../lib/serverSupabase.js'
 import { processActiveBattles } from '../lib/processBattles.js'
+import { settleFinishedBattles } from '../lib/settlement.js'
 
 const send = (response, status, body) => response.status(status).json(body)
 
@@ -10,7 +11,13 @@ export default async function handler(request, response) {
     assertCronRequest(request)
     const supabase = createServerSupabase()
     const results = await processActiveBattles(supabase)
-    return send(response, 200, { processed: results.length, results })
+    let settlements = []
+    try {
+      settlements = await settleFinishedBattles(supabase)
+    } catch (settlementError) {
+      if (settlementError.code !== 'SETTLEMENT_NOT_CONFIGURED') throw settlementError
+    }
+    return send(response, 200, { processed: results.length, results, settled: settlements.length, settlements })
   } catch (error) {
     const status = error.status ?? 500
     if (status >= 500) console.error('Battle cron error', error)
