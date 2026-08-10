@@ -15,6 +15,7 @@ export function escrowConfiguration() {
   }
   return {
     treasury,
+    feeTreasury: process.env.ESCROW_FEE_TREASURY_ADDRESS || null,
     programId: process.env.ESCROW_PROGRAM_ID || null,
     required: process.env.ESCROW_REQUIRED === 'true',
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',

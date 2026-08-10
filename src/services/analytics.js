@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
+const PLATFORM_FEE_BPS = 25
 
 const shortAddress = (address) => address ? `${address.slice(0, 8)}...${address.slice(-4)}` : 'Unknown'
 
@@ -31,7 +32,10 @@ export async function fetchWalletStats(walletAddress) {
       (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
       || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
     )
-    if (winner) return sum + Number(battle.pot_lamports || 0)
+    if (winner) {
+      const pot = Number(battle.pot_lamports || 0)
+      return sum + pot - Math.floor(pot * PLATFORM_FEE_BPS / 10_000)
+    }
     return sum
   }, 0)
 
@@ -54,7 +58,7 @@ export async function fetchWalletStats(walletAddress) {
           (battle.winner_mint === battle.token_a_mint && battle.creator_wallet === walletAddress)
           || (battle.winner_mint === battle.token_b_mint && battle.opponent_wallet === walletAddress)
         )
-          ? `+${(Number(battle.pot_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`
+          ? `+${((Number(battle.pot_lamports || 0) - Math.floor(Number(battle.pot_lamports || 0) * PLATFORM_FEE_BPS / 10_000)) / LAMPORTS_PER_SOL).toFixed(4)} SOL`
           : `-${(Number(battle.stake_lamports || 0) / LAMPORTS_PER_SOL).toFixed(2)} SOL`,
     })),
   }

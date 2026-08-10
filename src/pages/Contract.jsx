@@ -69,7 +69,7 @@ export default function Contract() {
 declare_id!(<span className="code-str">"TBat1eXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"</span>);
 
 <span className="code-comment">// ─── CONSTANTS ───────────────────────────────</span>
-<span className="code-kw">const</span> PROTOCOL_FEE_BPS: <span className="code-type">u64</span> = <span className="code-num">200</span>;  <span className="code-comment">// 2% fee (basis points)</span>
+<span className="code-kw">const</span> PROTOCOL_FEE_BPS: <span className="code-type">u64</span> = <span className="code-num">25</span>;  <span className="code-comment">// 0.25% fee (basis points)</span>
 <span className="code-kw">const</span> MAX_MC_DIFF_BPS: <span className="code-type">u64</span> = <span className="code-num">5000</span>; <span className="code-comment">// 50% max market cap difference</span>
 
 <span className="code-comment">// ─── BATTLE STATES ───────────────────────────</span>

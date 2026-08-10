@@ -53,6 +53,7 @@ export default async function handler(request, response) {
       return send(response, 200, {
         configured: true,
         treasury: config.treasury,
+        feeTreasury: config.feeTreasury,
         programConfigured: Boolean(config.programId),
         required: config.required,
       })

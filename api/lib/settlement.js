@@ -23,13 +23,17 @@ function settlementError(message) {
 
 function config() {
   const escrow = escrowConfiguration()
+  const feeTreasury = process.env.ESCROW_FEE_TREASURY_ADDRESS
+  if (!feeTreasury || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(feeTreasury)) {
+    throw settlementError('Settlement is not configured: set ESCROW_FEE_TREASURY_ADDRESS to a Solana fee wallet.')
+  }
   const walletId = process.env.ESCROW_TREASURY_WALLET_ID
   const appId = process.env.PRIVY_APP_ID || process.env.VITE_PRIVY_APP_ID
   const appSecret = process.env.PRIVY_APP_SECRET
   if (!walletId || !appId || !appSecret) {
     throw settlementError('Settlement is not configured: set ESCROW_TREASURY_WALLET_ID and Privy server credentials.')
   }
-  return { ...escrow, walletId, appId, appSecret }
+  return { ...escrow, feeTreasury, walletId, appId, appSecret }
 }
 
 async function buildPayoutTransaction({ rpc, source, payouts }) {
@@ -78,15 +82,18 @@ export async function settleFinishedBattles(supabase, limit = 25) {
   const results = []
   for (const battle of battles ?? []) {
     try {
-      const stake = Number(battle.stake_lamports)
-      const payouts = battle.winner_mint === battle.token_a_mint
-        ? [{ wallet: battle.creator_wallet, amount: Number(battle.pot_lamports) }]
+      const pot = Number(battle.pot_lamports)
+      const fee = Math.floor(pot * 25 / 10_000)
+      const winnerWallet = battle.winner_mint === battle.token_a_mint
+        ? battle.creator_wallet
         : battle.winner_mint === battle.token_b_mint
-          ? [{ wallet: battle.opponent_wallet, amount: Number(battle.pot_lamports) }]
-          : [
-              { wallet: battle.creator_wallet, amount: stake },
-              { wallet: battle.opponent_wallet, amount: stake },
-            ]
+          ? battle.opponent_wallet
+          : null
+      if (!winnerWallet) throw new Error('Battle winner is not available for settlement.')
+      const payouts = [
+        { wallet: winnerWallet, amount: pot - fee },
+        { wallet: settlement.feeTreasury, amount: fee },
+      ]
       for (const payout of payouts) {
         if (!payout.wallet || !Number.isSafeInteger(payout.amount) || payout.amount <= 0) throw new Error('Invalid battle payout.')
       }

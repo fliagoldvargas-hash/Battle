@@ -9,6 +9,8 @@ import { createBattle, joinBattle } from '../services/battleActions'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
+const PLATFORM_FEE_RATE = 0.0025
+
 export default function Battles() {
   const { wallet, getAccessToken, depositStake, escrowConfigured } = useWallet()
   const [battles, setBattles] = useState([])
@@ -296,7 +298,11 @@ export default function Battles() {
 
         <div className="stake-display">
           <span className="stake-display-label">Total Pot (when matched)</span>
-          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(1)} SOL</span>
+          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
+          <span className="stake-display-label">Platform fee (0.25%)</span>
+          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
+          <span className="stake-display-label">Winner receives</span>
+          <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
         </div>
 
         <button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>
