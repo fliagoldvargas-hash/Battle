@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react'
 import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
-import { useWallets } from '@privy-io/react-auth/solana'
+import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
 import { sendEscrowDeposit } from '../services/escrow'
@@ -15,6 +15,7 @@ function signatureToBase64(signature) {
 export function WalletProvider({ children }) {
   const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
+  const { signAndSendTransaction } = useSignAndSendTransaction()
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
@@ -77,8 +78,8 @@ export function WalletProvider({ children }) {
 
   const depositStake = useCallback((lamports) => {
     if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
-    return sendEscrowDeposit({ wallet: activeWallet, lamports })
-  }, [activeWallet])
+    return sendEscrowDeposit({ wallet: activeWallet, lamports, signAndSendTransaction })
+  }, [activeWallet, signAndSendTransaction])
 
   const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
 

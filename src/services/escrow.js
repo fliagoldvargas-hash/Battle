@@ -42,11 +42,11 @@ export async function buildEscrowDepositTransaction({ walletAddress, lamports })
   return getTransactionEncoder().encode(compileTransaction(message))
 }
 
-export async function sendEscrowDeposit({ wallet, lamports }) {
+export async function sendEscrowDeposit({ wallet, lamports, signAndSendTransaction }) {
   const transaction = await buildEscrowDepositTransaction({ walletAddress: wallet.address, lamports })
-  const result = await wallet.signAndSendTransaction({
+  const result = await signAndSendTransaction({
     transaction,
-    address: wallet.address,
+    wallet,
     chain: 'solana:mainnet',
   })
   return getBase58Encoder().encode(result.signature)
