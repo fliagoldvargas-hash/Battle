@@ -8,7 +8,7 @@ export default async function handler(request, response) {
   if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' })
 
   try {
-    assertCronRequest(request)
+    await assertCronRequest(request)
     const supabase = createServerSupabase()
     const results = await processActiveBattles(supabase)
     let settlements = []

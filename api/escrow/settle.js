@@ -7,7 +7,7 @@ export default async function handler(request, response) {
     return response.status(405).json({ error: 'Method not allowed.' })
   }
   try {
-    assertCronRequest(request)
+    await assertCronRequest(request)
     const results = await settleFinishedBattles(createServerSupabase())
     return response.status(200).json({ settled: results.length, results })
   } catch (error) {
@@ -16,4 +16,3 @@ export default async function handler(request, response) {
     return response.status(status).json({ error: status === 401 ? error.message : 'Unable to settle battles.' })
   }
 }
-

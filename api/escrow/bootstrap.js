@@ -7,7 +7,7 @@ export default async function handler(request, response) {
     return response.status(405).json({ error: 'Method not allowed.' })
   }
   try {
-    assertCronRequest(request)
+    await assertCronRequest(request)
     if (process.env.ESCROW_TREASURY_WALLET_ID) {
       return response.status(200).json({ configured: true, walletId: process.env.ESCROW_TREASURY_WALLET_ID, address: process.env.ESCROW_TREASURY_ADDRESS })
     }
@@ -22,4 +22,3 @@ export default async function handler(request, response) {
     return response.status(status).json({ error: status === 401 ? error.message : 'Unable to provision the escrow treasury.' })
   }
 }
-
