@@ -19,6 +19,9 @@ export function WalletProvider({ children }) {
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
+    // Privy rejects a second SIWS login while the current session is active.
+    // This also prevents a reconnect click from showing a false auth error.
+    if (authenticated) return
     try {
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
@@ -32,7 +35,7 @@ export function WalletProvider({ children }) {
       const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
       notify('error', 'Wallet Authentication Failed', message)
     }
-  }, [generateSiwsMessage, loginWithSiws])
+  }, [authenticated, generateSiwsMessage, loginWithSiws])
 
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet: connectedWallet }) => {
@@ -59,6 +62,8 @@ export function WalletProvider({ children }) {
       return
     }
 
+    if (authenticated) return
+
     const connectedSolanaWallet = wallets[0]
     if (connectedSolanaWallet) {
       void authenticateSolanaWallet(connectedSolanaWallet)
@@ -69,7 +74,7 @@ export function WalletProvider({ children }) {
       walletList: ['phantom', 'solflare'],
       walletChainType: 'solana-only',
     })
-  }, [authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
+  }, [authenticated, authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
 
   const disconnect = useCallback(async () => {
     await logout()
