@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from './lib/pumpfun.js'
 import { escrowConfiguration, verifyStakeTransfer } from './lib/escrow.js'
 import { processActiveBattles } from './lib/processBattles.js'
+import { settleFinishedBattles } from './lib/settlement.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000
@@ -253,6 +254,12 @@ export default async function handler(request, response) {
     try {
       const { supabase } = createServerClients()
       const processed = await processActiveBattles(supabase, 25)
+      let settlements = []
+      try {
+        settlements = await settleFinishedBattles(supabase)
+      } catch (settlementError) {
+        if (settlementError.code !== 'SETTLEMENT_NOT_CONFIGURED') throw settlementError
+      }
       const { data: battles, error } = await supabase
         .from('battles')
         .select('*')
@@ -260,7 +267,7 @@ export default async function handler(request, response) {
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) throw error
-      return send(response, 200, { battles, processed })
+      return send(response, 200, { battles, processed, settlements })
     } catch (error) {
       console.error('Battle read API error', error)
       return send(response, 500, { error: 'Unable to load battles right now.' })
