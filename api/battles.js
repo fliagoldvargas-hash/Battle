@@ -2,6 +2,7 @@ import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from './lib/pumpfun.js'
 import { escrowConfiguration, verifyStakeTransfer } from './lib/escrow.js'
+import { processActiveBattles } from './lib/processBattles.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000
@@ -219,6 +220,23 @@ async function verifyOptionalDeposit({ signature, walletAddress, expectedLamport
 }
 
 export default async function handler(request, response) {
+  if (request.method === 'GET') {
+    try {
+      const { supabase } = createServerClients()
+      const processed = await processActiveBattles(supabase, 25)
+      const { data: battles, error } = await supabase
+        .from('battles')
+        .select('*')
+        .in('status', ['waiting', 'active', 'finished', 'settled'])
+        .order('created_at', { ascending: false })
+        .limit(50)
+      if (error) throw error
+      return send(response, 200, { battles, processed })
+    } catch (error) {
+      console.error('Battle read API error', error)
+      return send(response, 500, { error: 'Unable to load battles right now.' })
+    }
+  }
   if (request.method !== 'POST') {
     response.setHeader('Allow', 'POST')
     return send(response, 405, { error: 'Method not allowed.' })

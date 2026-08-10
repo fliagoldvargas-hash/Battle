@@ -1,5 +1,3 @@
-import { supabase } from '../lib/supabase'
-
 const LAMPORTS_PER_SOL = 1_000_000_000
 
 const shortAddress = (address) => {
@@ -39,15 +37,17 @@ export const mapBattle = (battle) => ({
 })
 
 export async function fetchPublicBattles() {
-  if (!supabase) return null
-
+  const response = await fetch('/api/battles')
+  const result = await response.json().catch(() => ({}))
+  if (response.ok) return (result.battles ?? []).map(mapBattle)
+  if (!supabase) throw new Error(result.error || 'Unable to load battles.')
   const { data, error } = await supabase
     .from('battles')
     .select('*')
     .in('status', ['waiting', 'active', 'finished', 'settled'])
     .order('created_at', { ascending: false })
     .limit(50)
-
   if (error) throw error
-  return data.map(mapBattle)
+  return (data ?? []).map(mapBattle)
 }
+import { supabase } from '../lib/supabase'
