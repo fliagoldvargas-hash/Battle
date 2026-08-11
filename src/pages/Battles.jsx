@@ -5,8 +5,8 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle, syncDevnetBattle } from '../services/battleActions'
-import { createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle } from '../services/onchainEscrow'
+import { createBattle, joinBattle, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
+import { cancelOnchainBattle, createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
@@ -198,6 +198,52 @@ export default function Battles() {
     }
   }
 
+  const handleCancel = async () => {
+    if (!viewBattle || !isOnchainEscrowEnabled()) return
+    setIsSubmitting(true)
+    try {
+      const onchain = await cancelOnchainBattle({
+        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+        battleIdHex: viewBattle.onchainBattleId,
+      })
+      await syncDevnetEscrowAction({
+        getAccessToken, walletAddress: wallet.address,
+        body: { action: 'cancel', ...onchain },
+      })
+      setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
+      setViewBattle(null)
+      notify('success', 'Battle Cancelled', 'Your Devnet stake has been returned to your wallet.')
+    } catch (error) {
+      notify('error', 'Could Not Cancel', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleRefund = async () => {
+    if (!viewBattle || !isOnchainEscrowEnabled()) return
+    setIsSubmitting(true)
+    try {
+      const onchain = await refundExpiredOnchainBattle({
+        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+        battleIdHex: viewBattle.onchainBattleId,
+        creatorAddress: viewBattle.creatorAddress,
+        opponentAddress: viewBattle.opponentAddress,
+      })
+      await syncDevnetEscrowAction({
+        getAccessToken, walletAddress: wallet.address,
+        body: { action: 'refund', ...onchain },
+      })
+      setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
+      setViewBattle(null)
+      notify('success', 'Battle Refunded', 'Both Devnet stakes have been returned to their wallets.')
+    } catch (error) {
+      notify('error', 'Could Not Refund', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const formatTime = (seconds) => {
     if (seconds <= 0) return '00:00:00'
     const h = Math.floor(seconds / 3600)
@@ -341,6 +387,14 @@ export default function Battles() {
       >
         {viewBattle && (
           <>
+            {(() => {
+              const isCreator = wallet.connected && viewBattle.creatorAddress === wallet.address
+              const isParticipant = isCreator || (wallet.connected && viewBattle.opponentAddress === wallet.address)
+              const canCancel = isOnchainEscrowEnabled() && viewBattle.status === 'waiting' && isCreator
+              const canRefund = isOnchainEscrowEnabled() && viewBattle.status === 'active' && isParticipant
+                && viewBattle.endTime && currentTime >= viewBattle.endTime + 86_400
+              return (
+                <>
             <div className="battle-vs-display">
               <div className="bvd-side a">
                 <div className="bvd-symbol">{viewBattle.tokenA.symbol}</div>
@@ -411,7 +465,7 @@ export default function Battles() {
               </>
             )}
 
-            {viewBattle.status === 'waiting' && (
+            {viewBattle.status === 'waiting' && !isCreator && (
               <>
                 <div className="form-group">
                   <label className="form-label">Your Token</label>
@@ -441,6 +495,18 @@ export default function Battles() {
               </>
             )}
 
+            {canCancel && (
+              <button className="form-submit" onClick={handleCancel} disabled={isSubmitting}>
+                {isSubmitting ? 'PROCESSING...' : 'CANCEL BATTLE & RETURN STAKE'}
+              </button>
+            )}
+
+            {canRefund && (
+              <button className="form-submit" onClick={handleRefund} disabled={isSubmitting}>
+                {isSubmitting ? 'PROCESSING...' : 'REFUND BOTH STAKES'}
+              </button>
+            )}
+
             {(viewBattle.status === 'finished' || viewBattle.status === 'settled') && viewBattle.winner && (
               <div className="result-section">
                 <div className="result-trophy">🏆</div>
@@ -448,6 +514,9 @@ export default function Battles() {
                 <div className="result-winner-token">{viewBattle.winner}</div>
               </div>
             )}
+                </>
+              )
+            })()}
           </>
         )}
       </Modal>

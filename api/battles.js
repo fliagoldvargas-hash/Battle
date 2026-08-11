@@ -256,17 +256,22 @@ export default async function handler(request, response) {
   if (request.method === 'GET') {
     try {
       const { supabase } = createServerClients()
-      const processed = await processActiveBattles(supabase, 25)
+      const network = battleNetwork()
+      // Devnet escrow battles are settled only by the on-chain program once
+      // an oracle is added. Never run the legacy server-side settlement path.
+      const processed = network === 'devnet' ? [] : await processActiveBattles(supabase, 25, network)
       let settlements = []
-      try {
-        settlements = await settleFinishedBattles(supabase)
-      } catch (settlementError) {
-        if (settlementError.code !== 'SETTLEMENT_NOT_CONFIGURED') throw settlementError
+      if (network !== 'devnet') {
+        try {
+          settlements = await settleFinishedBattles(supabase)
+        } catch (settlementError) {
+          if (settlementError.code !== 'SETTLEMENT_NOT_CONFIGURED') throw settlementError
+        }
       }
       const { data: battles, error } = await supabase
         .from('battles')
         .select('*')
-        .eq('network', battleNetwork())
+        .eq('network', network)
         .in('status', ['waiting', 'active', 'finished', 'settled'])
         .order('created_at', { ascending: false })
         .limit(50)

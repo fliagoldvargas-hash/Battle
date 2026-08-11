@@ -3,6 +3,7 @@ name = "token_battle_escrow"
 version = "0.1.0"
 description = "Token Battle SOL escrow for Devnet"
 edition = "2021"
+rust-version = "1.79"
 
 [lib]
 crate-type = ["cdylib", "lib"]

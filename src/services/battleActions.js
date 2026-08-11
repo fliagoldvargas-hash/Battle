@@ -43,6 +43,14 @@ export function syncDevnetBattle(input) {
   })
 }
 
+export function syncDevnetEscrowAction(input) {
+  return postDevnetEscrowAction({
+    getAccessToken: input.getAccessToken,
+    walletAddress: input.walletAddress,
+    body: input.body,
+  })
+}
+
 export function createBattle(input) {
   return postBattleAction({
     getAccessToken: input.getAccessToken,

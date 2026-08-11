@@ -3,7 +3,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-token_battle_escrow = "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS"
+token_battle_escrow = "8BbDmAQ6ZAuhKVZurkJdmnnrmg6X4QkAtQ8oFiKeX7Ff"
 
 [provider]
 cluster = "Devnet"

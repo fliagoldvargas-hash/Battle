@@ -54,6 +54,30 @@ function hexFromBytes(bytes) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
+function base58Encode(bytes) {
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+  const digits = [0]
+  for (const byte of bytes) {
+    let carry = byte
+    for (let index = 0; index < digits.length; index += 1) {
+      carry += digits[index] << 8
+      digits[index] = carry % 58
+      carry = Math.floor(carry / 58)
+    }
+    while (carry > 0) {
+      digits.push(carry % 58)
+      carry = Math.floor(carry / 58)
+    }
+  }
+  let output = ''
+  for (const byte of bytes) {
+    if (byte !== 0) break
+    output += alphabet[0]
+  }
+  for (let index = digits.length - 1; index >= 0; index -= 1) output += alphabet[digits[index]]
+  return output
+}
+
 function deriveAccounts(id) {
   const programId = requireProgram()
   const [config] = PublicKey.findProgramAddressSync([new TextEncoder().encode('config')], programId)
@@ -72,7 +96,9 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
     wallet,
     chain: 'solana:devnet',
   })
-  return typeof result.signature === 'string' ? result.signature : Buffer.from(result.signature).toString('base64')
+  if (typeof result.signature === 'string') return result.signature
+  if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
+  throw new Error('Wallet did not return a Solana transaction signature.')
 }
 
 export async function createOnchainBattle({ wallet, signAndSendTransaction, tokenMint, stakeLamports, durationSeconds }) {
@@ -110,6 +136,40 @@ export async function joinOnchainBattle({ wallet, signAndSendTransaction, battle
   })
   const signature = await send({ wallet, signAndSendTransaction, instruction })
   return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58() }
+}
+
+export async function cancelOnchainBattle({ wallet, signAndSendTransaction, battleIdHex }) {
+  const id = bytesFromHex(battleIdHex)
+  const { programId, battle, vault } = deriveAccounts(id)
+  const instruction = new TransactionInstruction({
+    programId,
+    data: await discriminator('cancel_waiting'),
+    keys: [
+      { pubkey: new PublicKey(wallet.address), isSigner: true, isWritable: true },
+      { pubkey: battle, isSigner: false, isWritable: true },
+      { pubkey: vault, isSigner: false, isWritable: true },
+    ],
+  })
+  const signature = await send({ wallet, signAndSendTransaction, instruction })
+  return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id) }
+}
+
+export async function refundExpiredOnchainBattle({ wallet, signAndSendTransaction, battleIdHex, creatorAddress, opponentAddress }) {
+  const id = bytesFromHex(battleIdHex)
+  const { programId, battle, vault } = deriveAccounts(id)
+  const instruction = new TransactionInstruction({
+    programId,
+    data: await discriminator('refund_expired'),
+    keys: [
+      { pubkey: new PublicKey(wallet.address), isSigner: true, isWritable: false },
+      { pubkey: new PublicKey(creatorAddress), isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(opponentAddress), isSigner: false, isWritable: true },
+      { pubkey: battle, isSigner: false, isWritable: true },
+      { pubkey: vault, isSigner: false, isWritable: true },
+    ],
+  })
+  const signature = await send({ wallet, signAndSendTransaction, instruction })
+  return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id) }
 }
 
 export const isOnchainEscrowEnabled = () => DEVNET && Boolean(PROGRAM_ID)

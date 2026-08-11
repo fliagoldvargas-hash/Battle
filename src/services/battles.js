@@ -33,11 +33,14 @@ export const mapBattle = (battle) => ({
   durationLabel: durationLabel(battle.duration_seconds),
   endTime: battle.ends_at ? Math.floor(new Date(battle.ends_at).getTime() / 1000) : undefined,
   creator: shortAddress(battle.creator_wallet),
+  creatorAddress: battle.creator_wallet,
   opponent: battle.opponent_wallet ? shortAddress(battle.opponent_wallet) : undefined,
+  opponentAddress: battle.opponent_wallet,
   winner: battle.winner_symbol,
   onchainBattleId: battle.onchain_battle_id,
   onchainBattleAddress: battle.onchain_battle_address,
   vaultAddress: battle.vault_address,
+  escrowState: battle.escrow_state,
 })
 
 export async function fetchPublicBattles() {

@@ -52,10 +52,11 @@ async function processBattle(supabase, battle) {
   return { id: battle.id, status: update.status ?? 'active', ended }
 }
 
-export async function processActiveBattles(supabase, limit = 100) {
+export async function processActiveBattles(supabase, limit = 100, network = 'mainnet') {
   const { data: battles, error } = await supabase
     .from('battles')
     .select('*')
+    .eq('network', network)
     .eq('status', 'active')
     .not('ends_at', 'is', null)
     .lte('starts_at', new Date().toISOString())
