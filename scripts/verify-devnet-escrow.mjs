@@ -100,6 +100,25 @@ if (!activeAccount || activeAccount.owner.toBase58() !== programId.toBase58() ||
 const activeVaultBalance = await connection.getBalance(active.vault, 'confirmed')
 if (activeVaultBalance < stakeLamports * 2) throw new Error('Joined battle vault does not contain both stakes.')
 
+const refundTransaction = new Transaction().add(new TransactionInstruction({
+  programId,
+  data: discriminator('refund_expired'),
+  keys: [
+    { pubkey: authority.publicKey, isSigner: true, isWritable: false },
+    { pubkey: authority.publicKey, isSigner: false, isWritable: true },
+    { pubkey: opponent.publicKey, isSigner: false, isWritable: true },
+    { pubkey: active.battle, isSigner: false, isWritable: true },
+    { pubkey: active.vault, isSigner: false, isWritable: true },
+  ],
+}))
+refundTransaction.feePayer = authority.publicKey
+refundTransaction.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+refundTransaction.sign(authority)
+const simulatedRefund = await connection.simulateTransaction(refundTransaction)
+if (!simulatedRefund.value.err || !(simulatedRefund.value.logs || []).some((line) => line.includes('technical refund window has not opened'))) {
+  throw new Error('The active battle did not enforce its on-chain refund delay.')
+}
+
 console.log(JSON.stringify({
   cancelCreateSignature: cancelled.signature,
   cancelSignature,
@@ -111,4 +130,5 @@ console.log(JSON.stringify({
   opponent: opponent.publicKey.toBase58(),
   vaultBeforeCancel,
   activeVaultBalance,
+  refundDelayGuard: 'verified',
 }))
