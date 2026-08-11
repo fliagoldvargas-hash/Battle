@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from '@solana/web3.js'
-import { getPumpFunToken } from './pumpfun.js'
+import { getPumpFunToken } from '../api/lib/pumpfun.js'
 
 function oracleError(message) {
   const error = new Error(message)
