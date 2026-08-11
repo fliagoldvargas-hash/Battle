@@ -257,8 +257,8 @@ export default async function handler(request, response) {
     try {
       const { supabase } = createServerClients()
       const network = battleNetwork()
-      // Devnet escrow battles are settled only by the on-chain program once
-      // an oracle is added. Never run the legacy server-side settlement path.
+      // Devnet escrow battles are settled by the dedicated on-chain oracle path.
+      // Never run the legacy treasury settlement path for this network.
       const processed = network === 'devnet' ? [] : await processActiveBattles(supabase, 25, network)
       let settlements = []
       if (network !== 'devnet') {

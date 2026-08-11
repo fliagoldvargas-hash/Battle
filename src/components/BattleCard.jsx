@@ -114,7 +114,7 @@ export default function BattleCard({ battle, onClick }) {
           )}
         </div>
         {isDevnetEscrow && battle.status === 'active' && (
-          <p className="devnet-card-note">Escrow funded on Devnet · price tracking starts with the oracle</p>
+          <p className="devnet-card-note">Escrow funded on Devnet · oracle settlement runs daily</p>
         )}
       </div>
     </div>

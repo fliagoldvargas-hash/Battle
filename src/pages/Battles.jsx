@@ -284,7 +284,7 @@ export default function Battles() {
         {isDevnetEscrow && (
           <div className="devnet-notice" role="status">
             <strong>DEVNET TEST MODE</strong>
-            <span>Uses test SOL only. Escrow deposits work; winner calculation and automatic payout start with the oracle.</span>
+            <span>Uses test SOL only. The oracle compares both tokens to four decimals and settles completed battles automatically once per day.</span>
           </div>
         )}
       </div>
@@ -395,11 +395,11 @@ export default function Battles() {
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
           </div>
           <div className="stake-stat">
-            <span className="stake-display-label">{isDevnetEscrow ? 'Planned platform fee' : 'Platform fee'} <span>(0.25%)</span></span>
+            <span className="stake-display-label">Platform fee <span>(0.25%)</span></span>
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
           </div>
           <div className="stake-stat">
-            <span className="stake-display-label">{isDevnetEscrow ? 'Future winner payout' : 'Winner receives'}</span>
+            <span className="stake-display-label">Winner receives</span>
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
           </div>
         </div>
@@ -484,7 +484,7 @@ export default function Battles() {
             {isDevnetEscrow && viewBattle.status === 'active' && (
               <div className="escrow-status" role="status">
                 <strong>Escrow funded on Devnet</strong>
-                <span>The {viewBattle.pot} SOL test pot is locked. Price tracking, winner selection, fee transfer, and payout are disabled until the oracle is deployed.</span>
+                <span>The {viewBattle.pot} SOL test pot is locked. At completion, the oracle records both results, sends the 0.25% fee, and pays the winner automatically.</span>
                 {refundAt && <small>Fallback: either participant can refund both stakes after {refundAt} if settlement is still unavailable.</small>}
               </div>
             )}
