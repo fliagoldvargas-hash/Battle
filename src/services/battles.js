@@ -37,9 +37,13 @@ export const mapBattle = (battle) => ({
   opponent: battle.opponent_wallet ? shortAddress(battle.opponent_wallet) : undefined,
   opponentAddress: battle.opponent_wallet,
   winner: battle.winner_symbol,
+  network: battle.network ?? NETWORK,
   onchainBattleId: battle.onchain_battle_id,
   onchainBattleAddress: battle.onchain_battle_address,
   vaultAddress: battle.vault_address,
+  creatorDepositSignature: battle.creator_deposit_signature,
+  opponentDepositSignature: battle.opponent_deposit_signature,
+  settlementSignature: battle.settlement_signature,
   escrowState: battle.escrow_state,
 })
 

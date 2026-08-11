@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { isOnchainEscrowEnabled } from '../services/onchainEscrow'
+import { solanaExplorerAddress } from '../services/solanaExplorer'
 import './BattleCard.css'
 
 function formatTime(seconds) {
@@ -41,6 +42,7 @@ export default function BattleCard({ battle, onClick }) {
   }[battle.status]
 
   const isUrgent = battle.status === 'active' && timeLeft < 300
+  const onchainBattleUrl = solanaExplorerAddress(battle.onchainBattleAddress, battle.network)
 
   return (
     <div
@@ -115,6 +117,18 @@ export default function BattleCard({ battle, onClick }) {
         </div>
         {isDevnetEscrow && battle.status === 'active' && (
           <p className="devnet-card-note">Escrow funded on Devnet · oracle settlement runs daily</p>
+        )}
+        {onchainBattleUrl && (
+          <a
+            className="onchain-card-link"
+            href={onchainBattleUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => event.stopPropagation()}
+            aria-label="View this battle on Solana Explorer"
+          >
+            View on-chain ↗
+          </a>
         )}
       </div>
     </div>

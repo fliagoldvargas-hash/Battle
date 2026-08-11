@@ -234,6 +234,21 @@
   padding-top: 0.75rem;
 }
 
+.onchain-card-link {
+  display: inline-flex;
+  margin-top: 0.85rem;
+  color: var(--violet);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+}
+
+.onchain-card-link:hover {
+  color: var(--green);
+  text-decoration: underline;
+}
+
 .battle-meta {
   display: flex;
   gap: 1.5rem;

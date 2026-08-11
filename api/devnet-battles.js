@@ -203,7 +203,7 @@ export default async function handler(request, response) {
         throw Object.assign(new Error('Only a battle participant can request this refund.'), { status: 403 })
       }
       const { data, error } = await supabase.from('battles').update({
-        status: 'cancelled', escrow_state: 'refunded', updated_at: new Date().toISOString(),
+        status: 'cancelled', escrow_state: 'refunded', settlement_signature: payload.signature, updated_at: new Date().toISOString(),
       }).eq('id', existing.id).eq('status', payload.action === 'cancel' ? 'waiting' : 'active').select('*').single()
       if (error) throw error
       return send(response, 200, { battle: data })

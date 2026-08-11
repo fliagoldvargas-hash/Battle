@@ -8,6 +8,7 @@ import { fetchPublicBattles } from '../services/battles'
 import { createBattle, joinBattle, recoverDevnetBattles, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
+import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
 import './Battles.css'
 
 const PLATFORM_FEE_RATE = 0.0025
@@ -480,6 +481,46 @@ export default function Battles() {
                 <span>{viewBattle.durationLabel}</span>
               </div>
             </div>
+
+            {viewBattle.onchainBattleAddress && (
+              <section className="onchain-activity" aria-label="On-chain activity">
+                <div className="onchain-activity-heading">
+                  <div>
+                    <strong>On-chain activity</strong>
+                    <span>Verify every escrow movement directly on Solana Explorer.</span>
+                  </div>
+                  <span className="onchain-network">{viewBattle.network === 'devnet' ? 'DEVNET' : 'MAINNET'}</span>
+                </div>
+                <div className="onchain-activity-list">
+                  <a href={solanaExplorerAddress(viewBattle.onchainBattleAddress, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                    <span className="onchain-activity-label">Battle escrow account</span>
+                    <span>View account ↗</span>
+                  </a>
+                  {solanaExplorerTransaction(viewBattle.creatorDepositSignature, viewBattle.network) && (
+                    <a href={solanaExplorerTransaction(viewBattle.creatorDepositSignature, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                      <span className="onchain-activity-label">Creator deposit</span>
+                      <span>View transaction ↗</span>
+                    </a>
+                  )}
+                  {solanaExplorerTransaction(viewBattle.opponentDepositSignature, viewBattle.network) && (
+                    <a href={solanaExplorerTransaction(viewBattle.opponentDepositSignature, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                      <span className="onchain-activity-label">Challenger deposit</span>
+                      <span>View transaction ↗</span>
+                    </a>
+                  )}
+                  {transactionSignatures(viewBattle.settlementSignature).map((signature, index) => {
+                    const settlementUrl = solanaExplorerTransaction(signature, viewBattle.network)
+                    if (!settlementUrl) return null
+                    return (
+                      <a key={signature} href={settlementUrl} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                        <span className="onchain-activity-label">{viewBattle.escrowState === 'refunded' ? 'Refund payment' : `Settlement & payouts${index ? ` #${index + 1}` : ''}`}</span>
+                        <span>{viewBattle.escrowState === 'refunded' ? 'View refund ↗' : 'Winner payment + fee ↗'}</span>
+                      </a>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
 
             {isDevnetEscrow && viewBattle.status === 'active' && (
               <div className="escrow-status" role="status">
