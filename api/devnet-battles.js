@@ -1,6 +1,7 @@
 import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
 import { PublicKey } from '@solana/web3.js'
+import { createHash } from 'node:crypto'
 import { getPumpFunToken } from './lib/pumpfun.js'
 
 const ALLOWED_DURATIONS = new Set([1800, 3600, 7200, 14400, 28800, 86400])
@@ -69,7 +70,38 @@ function transactionAccounts(transaction) {
   return transaction.transaction.message.accountKeys.map((key) => typeof key === 'string' ? key : key.pubkey)
 }
 
-async function verifiedBattle({ signature, battleAddress, vaultAddress, battleId, wallet }) {
+function base58Decode(value) {
+  const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+  const bytes = [0]
+  for (const character of value) {
+    let carry = alphabet.indexOf(character)
+    if (carry < 0) throw new Error('Invalid encoded Solana instruction.')
+    for (let index = 0; index < bytes.length; index += 1) {
+      carry += bytes[index] * 58
+      bytes[index] = carry & 0xff
+      carry >>= 8
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff)
+      carry >>= 8
+    }
+  }
+  for (const character of value) {
+    if (character !== alphabet[0]) break
+    bytes.push(0)
+  }
+  return Buffer.from(bytes.reverse())
+}
+
+function hasEscrowInstruction(transaction, programId, instructionName) {
+  const keys = transactionAccounts(transaction)
+  const discriminator = createHash('sha256').update(`global:${instructionName}`).digest().subarray(0, 8)
+  return transaction.transaction.message.instructions.some((instruction) => (
+    keys[instruction.programIdIndex] === programId && typeof instruction.data === 'string' && base58Decode(instruction.data).subarray(0, 8).equals(discriminator)
+  ))
+}
+
+async function verifiedBattle({ signature, battleAddress, vaultAddress, battleId, instructionName }) {
   const programId = env('ESCROW_PROGRAM_ID')
   if (!SIGNATURE.test(signature || '') || !ADDRESS.test(battleAddress || '') || !/^[a-f0-9]{32}$/i.test(battleId || '')) {
     throw Object.assign(new Error('Invalid Devnet escrow confirmation.'), { status: 400 })
@@ -80,17 +112,17 @@ async function verifiedBattle({ signature, battleAddress, vaultAddress, battleId
   }
   const transaction = await rpc('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])
   const accounts = transaction ? transactionAccounts(transaction) : []
-  if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(expected.vault)) {
+  if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(expected.vault) || !hasEscrowInstruction(transaction, programId, instructionName)) {
     throw Object.assign(new Error('The Devnet transaction was not confirmed by the escrow program.'), { status: 400 })
   }
   const info = await rpc('getAccountInfo', [battleAddress, { encoding: 'base64', commitment: 'confirmed' }])
   if (!info?.value || info.value.owner !== programId) throw Object.assign(new Error('Escrow battle account was not found on Devnet.'), { status: 400 })
   const battle = decodeBattle(info.value)
-  if (battle.id !== battleId.toLowerCase() || battle.creator !== wallet) throw Object.assign(new Error('Devnet battle account does not match this wallet.'), { status: 400 })
+  if (battle.id !== battleId.toLowerCase()) throw Object.assign(new Error('Devnet battle account does not match its identifier.'), { status: 400 })
   return battle
 }
 
-async function verifiedClosedBattle({ signature, battleAddress, vaultAddress, battleId }) {
+async function verifiedClosedBattle({ signature, battleAddress, vaultAddress, battleId, instructionName }) {
   const programId = env('ESCROW_PROGRAM_ID')
   if (!SIGNATURE.test(signature || '') || !ADDRESS.test(battleAddress || '') || !ADDRESS.test(vaultAddress || '') || !/^[a-f0-9]{32}$/i.test(battleId || '')) {
     throw Object.assign(new Error('Invalid Devnet escrow confirmation.'), { status: 400 })
@@ -101,7 +133,7 @@ async function verifiedClosedBattle({ signature, battleAddress, vaultAddress, ba
   }
   const transaction = await rpc('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])
   const accounts = transaction ? transactionAccounts(transaction) : []
-  if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(vaultAddress)) {
+  if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(vaultAddress) || !hasEscrowInstruction(transaction, programId, instructionName)) {
     throw Object.assign(new Error('The Devnet transaction was not confirmed by the escrow program.'), { status: 400 })
   }
 }
@@ -114,7 +146,7 @@ export default async function handler(request, response) {
     const identity = await walletFor(request, privy)
     const payload = request.body || {}
     if (payload.action === 'cancel' || payload.action === 'refund') {
-      await verifiedClosedBattle(payload)
+      await verifiedClosedBattle({ ...payload, instructionName: payload.action === 'cancel' ? 'cancel_waiting' : 'refund_expired' })
       const { data: existing, error: existingError } = await supabase.from('battles')
         .select('*').eq('network', 'devnet').eq('onchain_battle_address', payload.battleAddress).maybeSingle()
       if (existingError) throw existingError
@@ -131,9 +163,9 @@ export default async function handler(request, response) {
       if (error) throw error
       return send(response, 200, { battle: data })
     }
-    const chain = await verifiedBattle({ ...payload, wallet: identity.wallet })
+    const chain = await verifiedBattle({ ...payload, instructionName: payload.action === 'create' ? 'create_battle' : 'join_battle' })
     if (payload.action === 'create') {
-      if (!ALLOWED_DURATIONS.has(chain.duration) || chain.status !== 0) throw Object.assign(new Error('Unexpected Devnet battle state.'), { status: 409 })
+      if (!ALLOWED_DURATIONS.has(chain.duration) || chain.status !== 0 || chain.creator !== identity.wallet) throw Object.assign(new Error('Unexpected Devnet battle state.'), { status: 409 })
       const token = await getPumpFunToken(chain.tokenA)
       const { data, error } = await supabase.from('battles').upsert({
         network: 'devnet', creator_privy_user_id: identity.userId, creator_wallet: identity.wallet,
