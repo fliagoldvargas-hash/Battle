@@ -181,6 +181,11 @@
   font-size: 0.78rem;
 }
 
+.form-hint-error {
+  color: #ff788c;
+  line-height: 1.4;
+}
+
 .token-search-results {
   position: absolute;
   top: 100%;

@@ -28,6 +28,7 @@ export default function Battles() {
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [createError, setCreateError] = useState('')
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -118,6 +119,7 @@ export default function Battles() {
       return
     }
 
+    setCreateError('')
     setIsSubmitting(true)
     try {
       const newBattle = isOnchainEscrowEnabled()
@@ -145,7 +147,10 @@ export default function Battles() {
       setTokenAddress('')
       setStakeAmount('5')
     } catch (error) {
-      notify('error', 'Battle Not Created', error.message)
+      const message = error instanceof Error ? error.message : 'The wallet could not create this battle.'
+      console.error('Battle creation failed', error)
+      setCreateError(message)
+      notify('error', 'Battle Not Created', message)
     } finally {
       setIsSubmitting(false)
     }
@@ -327,6 +332,7 @@ export default function Battles() {
           </div>
           {isLookingUpToken && <p className="form-hint">Checking Pump.fun...</p>}
           {selectedToken && <p className="form-hint">Verified: {selectedToken.name} (${selectedToken.symbol}) · {formatMarketCap(selectedToken.marketCap)}</p>}
+          {createError && <p className="form-hint form-hint-error" role="alert">{createError}</p>}
         </div>
 
         <div className="form-group">
