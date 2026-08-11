@@ -1,0 +1,34 @@
+name: Settle Devnet oracle battles
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+
+jobs:
+  settle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Request a short-lived GitHub identity token
+        id: oidc
+        shell: bash
+        env:
+          AUDIENCE: vantaagents-battle-cron
+        run: |
+          response="$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}")"
+          echo "token=$(jq --raw-output '.value' <<<"$response")" >> "$GITHUB_OUTPUT"
+
+      - name: Settle completed Devnet battles
+        shell: bash
+        env:
+          OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
+        run: |
+          curl --fail-with-body --silent --show-error --retry 2 --retry-all-errors \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            https://battle-git-escrow-devnet-fliagoldvargas-1644s-projects.vercel.app/api/cron/battles
