@@ -5,7 +5,10 @@ const githubActionsJwks = createRemoteJWKSet(new URL('https://token.actions.gith
 const githubActionsIssuer = 'https://token.actions.githubusercontent.com'
 const githubActionsAudience = 'vantaagents-battle-cron'
 const githubRepository = 'fliagoldvargas-hash/Battle'
-const githubWorkflowRef = `${githubRepository}/.github/workflows/process-battles.yml@refs/heads/main`
+const githubWorkflowRefs = new Set([
+  `${githubRepository}/.github/workflows/process-battles.yml@refs/heads/main`,
+  `${githubRepository}/.github/workflows/process-devnet-oracle.yml@refs/heads/main`,
+])
 
 export function createServerSupabase() {
   const url = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
@@ -31,7 +34,7 @@ export async function assertCronRequest(request) {
       })
       const validWorkflow = payload.repository === githubRepository
         && payload.ref === 'refs/heads/main'
-        && payload.workflow_ref === githubWorkflowRef
+        && githubWorkflowRefs.has(payload.workflow_ref)
         && (payload.event_name === 'schedule' || payload.event_name === 'workflow_dispatch')
       if (validWorkflow) return
     } catch {
