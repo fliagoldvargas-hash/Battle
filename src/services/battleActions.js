@@ -1,12 +1,20 @@
 import { mapBattle } from './battles'
 
-async function postBattleAction({ getAccessToken, walletAddress, body }) {
-  let accessToken = await getAccessToken()
-  if (!accessToken) {
-    await new Promise(resolve => setTimeout(resolve, 300))
-    accessToken = await getAccessToken()
+async function getPrivyAccessToken(getAccessToken) {
+  // Privy may finish updating React state a moment after SIWS succeeds. Wait
+  // briefly for its access token instead of reporting a false expired-session
+  // error immediately after a successful wallet connection.
+  for (const delay of [0, 300, 700]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay))
+    const accessToken = await getAccessToken()
+    if (accessToken) return accessToken
   }
-  if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
+
+  throw new Error('Your Privy session is still initializing. Please wait a moment and try again.')
+}
+
+async function postBattleAction({ getAccessToken, walletAddress, body }) {
+  const accessToken = await getPrivyAccessToken(getAccessToken)
 
   const response = await fetch('/api/battles', {
     method: 'POST',
@@ -23,8 +31,7 @@ async function postBattleAction({ getAccessToken, walletAddress, body }) {
 }
 
 async function postDevnetEscrowAction({ getAccessToken, walletAddress, body }) {
-  let accessToken = await getAccessToken()
-  if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
+  const accessToken = await getPrivyAccessToken(getAccessToken)
   const response = await fetch('/api/devnet-battles', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
@@ -52,8 +59,7 @@ export function syncDevnetEscrowAction(input) {
 }
 
 export async function recoverDevnetBattles({ getAccessToken, walletAddress }) {
-  let accessToken = await getAccessToken()
-  if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
+  const accessToken = await getPrivyAccessToken(getAccessToken)
   const response = await fetch('/api/devnet-battles', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
