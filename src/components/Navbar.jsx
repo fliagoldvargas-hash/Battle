@@ -14,7 +14,7 @@ const navItems = [
 export default function Navbar() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { wallet, connect, disconnect, isReady } = useWallet()
+  const { wallet, connect, disconnect, isReady, isConnecting } = useWallet()
   const [mobileOpen, setMobileOpen] = useState(false)
   const isDevnet = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
 
@@ -58,17 +58,17 @@ export default function Navbar() {
       <button
         className={`wallet-btn ${wallet.connected ? 'connected' : ''}`}
         onClick={handleWallet}
-        disabled={!isReady}
+        disabled={!isReady || isConnecting}
         title={wallet.connected ? 'Disconnect wallet' : 'Connect wallet'}
         aria-label={wallet.connected ? 'Disconnect wallet' : 'Connect wallet'}
       >
         {wallet.connected ? (
           <>
             <span className="wallet-dot" />
-            Disconnect Wallet
+            {isConnecting ? 'Disconnecting...' : 'Disconnect Wallet'}
           </>
         ) : (
-          isReady ? 'Connect Wallet' : 'Loading Wallet...'
+          isConnecting ? 'Connecting...' : (isReady ? 'Connect Wallet' : 'Loading Wallet...')
         )}
       </button>
     </nav>
