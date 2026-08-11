@@ -19,6 +19,7 @@ const required = (name) => {
 
 const programId = new PublicKey(required('ESCROW_PROGRAM_ID'))
 const authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(await readFile(required('SOLANA_DEVNET_AUTHORITY_PATH'), 'utf8'))))
+const feeTreasury = new PublicKey(required('ESCROW_DEVNET_FEE_TREASURY'))
 const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed')
 const stakeLamports = Math.round(0.01 * LAMPORTS_PER_SOL)
 
@@ -40,9 +41,9 @@ const accounts = (id) => {
   return { config, battle, vault }
 }
 const send = async (instruction, signers) => sendAndConfirmTransaction(connection, new Transaction().add(instruction), signers, { commitment: 'confirmed' })
-const create = async (creator, id, token) => {
+const create = async (creator, id, token, durationSeconds = 1800) => {
   const { config, battle, vault } = accounts(id)
-  const data = Buffer.concat([discriminator('create_battle'), id, token.toBuffer(), u64(stakeLamports), u32(1800)])
+  const data = Buffer.concat([discriminator('create_battle'), id, token.toBuffer(), u64(stakeLamports), u32(durationSeconds)])
   const signature = await send(new TransactionInstruction({
     programId,
     data,
@@ -82,7 +83,7 @@ const funding = new Transaction().add(SystemProgram.transfer({
 await sendAndConfirmTransaction(connection, funding, [authority], { commitment: 'confirmed' })
 
 const activeId = randomBytes(16)
-const active = await create(authority, activeId, Keypair.generate().publicKey)
+const active = await create(authority, activeId, Keypair.generate().publicKey, 1)
 const joinSignature = await send(new TransactionInstruction({
   programId,
   data: Buffer.concat([discriminator('join_battle'), Keypair.generate().publicKey.toBuffer()]),
@@ -119,6 +120,29 @@ if (!simulatedRefund.value.err || !(simulatedRefund.value.logs || []).some((line
   throw new Error('The active battle did not enforce its on-chain refund delay.')
 }
 
+await new Promise((resolve) => setTimeout(resolve, 2_000))
+const feeBeforeSettlement = await connection.getBalance(feeTreasury, 'confirmed')
+const settlementSignature = await send(new TransactionInstruction({
+  programId,
+  data: discriminator('settle_battle'),
+  keys: [
+    { pubkey: authority.publicKey, isSigner: true, isWritable: true },
+    { pubkey: authority.publicKey, isSigner: false, isWritable: true },
+    { pubkey: feeTreasury, isSigner: false, isWritable: true },
+    { pubkey: active.battle, isSigner: false, isWritable: true },
+    { pubkey: active.vault, isSigner: false, isWritable: true },
+    { pubkey: authority.publicKey, isSigner: false, isWritable: true },
+  ],
+}), [authority])
+const expectedFeeLamports = Math.floor(stakeLamports * 2 * 25 / 10_000)
+const feeAfterSettlement = await connection.getBalance(feeTreasury, 'confirmed')
+if (feeAfterSettlement - feeBeforeSettlement !== expectedFeeLamports) {
+  throw new Error('Settlement did not send the exact platform fee to the configured treasury.')
+}
+if (await connection.getAccountInfo(active.battle, 'confirmed') || await connection.getAccountInfo(active.vault, 'confirmed')) {
+  throw new Error('Settlement did not close the battle and escrow vault accounts.')
+}
+
 console.log(JSON.stringify({
   cancelCreateSignature: cancelled.signature,
   cancelSignature,
@@ -131,4 +155,7 @@ console.log(JSON.stringify({
   vaultBeforeCancel,
   activeVaultBalance,
   refundDelayGuard: 'verified',
+  settlementSignature,
+  expectedFeeLamports,
+  settlement: 'verified',
 }))

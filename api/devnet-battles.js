@@ -218,10 +218,11 @@ export default async function handler(request, response) {
     }
     if (payload.action === 'join') {
       if (chain.status !== 1 || chain.opponent !== identity.wallet) throw Object.assign(new Error('Unexpected Devnet join state.'), { status: 409 })
-      const token = await getPumpFunToken(chain.tokenB)
+      const [tokenA, tokenB] = await Promise.all([getPumpFunToken(chain.tokenA), getPumpFunToken(chain.tokenB)])
       const { data, error } = await supabase.from('battles').update({
         status: 'active', opponent_privy_user_id: identity.userId, opponent_wallet: identity.wallet,
-        token_b_mint: token.mint, token_b_symbol: token.symbol, token_b_market_cap: token.marketCap, token_b_change_pct: 0,
+        token_a_mint: tokenA.mint, token_a_symbol: tokenA.symbol, token_a_market_cap: tokenA.marketCap, token_a_change_pct: 0,
+        token_b_mint: tokenB.mint, token_b_symbol: tokenB.symbol, token_b_market_cap: tokenB.marketCap, token_b_change_pct: 0,
         pot_lamports: chain.stake * 2, starts_at: new Date(chain.startedAt * 1000).toISOString(), ends_at: new Date(chain.endsAt * 1000).toISOString(),
         escrow_state: 'funded', opponent_deposit_signature: payload.signature, updated_at: new Date().toISOString(),
       }).eq('network', 'devnet').eq('onchain_battle_address', payload.battleAddress).eq('status', 'waiting').select('*').single()

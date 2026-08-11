@@ -1,6 +1,7 @@
 import { assertCronRequest, createServerSupabase } from '../lib/serverSupabase.js'
 import { processActiveBattles } from '../lib/processBattles.js'
 import { settleFinishedBattles } from '../lib/settlement.js'
+import { settleDevnetBattles } from '../lib/devnetOracle.js'
 
 const send = (response, status, body) => response.status(status).json(body)
 
@@ -10,6 +11,10 @@ export default async function handler(request, response) {
   try {
     await assertCronRequest(request)
     const supabase = createServerSupabase()
+    if (process.env.BATTLE_NETWORK === 'devnet') {
+      const settlements = await settleDevnetBattles(supabase)
+      return send(response, 200, { processed: settlements.length, results: settlements, settled: settlements.length })
+    }
     const results = await processActiveBattles(supabase)
     let settlements = []
     try {

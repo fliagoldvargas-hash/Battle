@@ -102,6 +102,23 @@ pub mod token_battle_escrow {
         transfer_from_vault(&ctx.accounts.vault.to_account_info(), &ctx.accounts.opponent.to_account_info(), battle.stake_lamports)?;
         Ok(())
     }
+
+    pub fn settle_battle(ctx: Context<SettleBattle>) -> Result<()> {
+        let battle = &ctx.accounts.battle;
+        require!(battle.status == BattleStatus::Active, EscrowError::BattleNotActive);
+        require_keys_eq!(battle.settlement_authority, ctx.accounts.settlement_authority.key(), EscrowError::InvalidSettlementAuthority);
+        require_keys_eq!(battle.fee_treasury, ctx.accounts.fee_treasury.key(), EscrowError::InvalidFeeTreasury);
+        require!(ctx.accounts.winner.key() == battle.creator || ctx.accounts.winner.key() == battle.opponent, EscrowError::InvalidWinner);
+        let now = Clock::get()?.unix_timestamp;
+        require!(now >= battle.ends_at, EscrowError::BattleNotFinished);
+
+        let pot = battle.stake_lamports.checked_mul(2).ok_or(EscrowError::TimestampOverflow)?;
+        let fee = pot.checked_mul(battle.fee_bps as u64).ok_or(EscrowError::TimestampOverflow)? / 10_000;
+        let payout = pot.checked_sub(fee).ok_or(EscrowError::InsufficientVaultBalance)?;
+        transfer_from_vault(&ctx.accounts.vault.to_account_info(), &ctx.accounts.winner.to_account_info(), payout)?;
+        transfer_from_vault(&ctx.accounts.vault.to_account_info(), &ctx.accounts.fee_treasury.to_account_info(), fee)?;
+        Ok(())
+    }
 }
 
 fn transfer_from_vault(vault: &AccountInfo, recipient: &AccountInfo, amount: u64) -> Result<()> {
@@ -169,6 +186,21 @@ pub struct RefundExpired<'info> {
     pub vault: Account<'info, Vault>,
 }
 
+#[derive(Accounts)]
+pub struct SettleBattle<'info> {
+    pub settlement_authority: Signer<'info>,
+    #[account(mut)]
+    pub winner: SystemAccount<'info>,
+    #[account(mut)]
+    pub fee_treasury: SystemAccount<'info>,
+    #[account(mut, close = creator, seeds = [b"battle", battle.id.as_ref()], bump = battle.bump)]
+    pub battle: Account<'info, Battle>,
+    #[account(mut, close = creator, seeds = [b"vault", battle.key().as_ref()], bump = battle.vault_bump)]
+    pub vault: Account<'info, Vault>,
+    #[account(mut, address = battle.creator)]
+    pub creator: SystemAccount<'info>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
@@ -217,4 +249,8 @@ pub enum EscrowError {
     #[msg("Battle participant does not match the account provided.")] InvalidParticipant,
     #[msg("Vault does not contain the expected funds.")] InsufficientVaultBalance,
     #[msg("Timestamp arithmetic overflowed.")] TimestampOverflow,
+    #[msg("The settlement signer is not authorized for this battle.")] InvalidSettlementAuthority,
+    #[msg("The supplied fee treasury does not match this battle.")] InvalidFeeTreasury,
+    #[msg("The winner must be one of the battle participants.")] InvalidWinner,
+    #[msg("This battle has not ended yet.")] BattleNotFinished,
 }
