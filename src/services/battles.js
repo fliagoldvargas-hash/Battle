@@ -1,4 +1,5 @@
 const LAMPORTS_PER_SOL = 1_000_000_000
+const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
 
 const shortAddress = (address) => {
   if (!address) return 'Unknown'
@@ -47,6 +48,7 @@ export async function fetchPublicBattles() {
   const { data, error } = await supabase
     .from('battles')
     .select('*')
+    .eq('network', NETWORK)
     .in('status', ['waiting', 'active', 'finished', 'settled'])
     .order('created_at', { ascending: false })
     .limit(50)

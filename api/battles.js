@@ -283,6 +283,9 @@ export default async function handler(request, response) {
   }
 
   try {
+    if (battleNetwork() === 'devnet') {
+      return send(response, 409, { error: 'Use the on-chain Devnet escrow endpoint for this preview.' })
+    }
     const { privy, supabase } = createServerClients()
     const identity = await authenticateRequest(request, privy)
     const walletAddress = verifiedSolanaWallet(identity.user, request.body?.walletAddress)
