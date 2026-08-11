@@ -11,6 +11,7 @@ import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
 const PLATFORM_FEE_RATE = 0.0025
+const REFUND_DELAY_SECONDS = 86_400
 
 export default function Battles() {
   const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
@@ -30,6 +31,7 @@ export default function Battles() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const recoveredWallet = useRef('')
+  const isDevnetEscrow = isOnchainEscrowEnabled()
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -279,6 +281,12 @@ export default function Battles() {
       <div className="page-header">
         <h1 className="page-title">⚔ Battles</h1>
         <p className="page-subtitle">Browse open battles or create your own challenge</p>
+        {isDevnetEscrow && (
+          <div className="devnet-notice" role="status">
+            <strong>DEVNET TEST MODE</strong>
+            <span>Uses test SOL only. Escrow deposits work; winner calculation and automatic payout start with the oracle.</span>
+          </div>
+        )}
       </div>
 
       <div className="battles-container">
@@ -387,11 +395,11 @@ export default function Battles() {
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
           </div>
           <div className="stake-stat">
-            <span className="stake-display-label">Platform fee <span>(0.25%)</span></span>
+            <span className="stake-display-label">{isDevnetEscrow ? 'Planned platform fee' : 'Platform fee'} <span>(0.25%)</span></span>
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
           </div>
           <div className="stake-stat">
-            <span className="stake-display-label">Winner receives</span>
+            <span className="stake-display-label">{isDevnetEscrow ? 'Future winner payout' : 'Winner receives'}</span>
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
           </div>
         </div>
@@ -415,7 +423,8 @@ export default function Battles() {
               const isParticipant = isCreator || (wallet.connected && viewBattle.opponentAddress === wallet.address)
               const canCancel = isOnchainEscrowEnabled() && viewBattle.status === 'waiting' && isCreator
               const canRefund = isOnchainEscrowEnabled() && viewBattle.status === 'active' && isParticipant
-                && viewBattle.endTime && currentTime >= viewBattle.endTime + 86_400
+                && viewBattle.endTime && currentTime >= viewBattle.endTime + REFUND_DELAY_SECONDS
+              const refundAt = viewBattle.endTime ? new Date((viewBattle.endTime + REFUND_DELAY_SECONDS) * 1000).toLocaleString() : null
               return (
                 <>
             <div className="battle-vs-display">
@@ -472,7 +481,15 @@ export default function Battles() {
               </div>
             </div>
 
-            {viewBattle.status === 'active' && viewBattle.tokenA.perf !== undefined && viewBattle.tokenB?.perf !== undefined && (
+            {isDevnetEscrow && viewBattle.status === 'active' && (
+              <div className="escrow-status" role="status">
+                <strong>Escrow funded on Devnet</strong>
+                <span>The {viewBattle.pot} SOL test pot is locked. Price tracking, winner selection, fee transfer, and payout are disabled until the oracle is deployed.</span>
+                {refundAt && <small>Fallback: either participant can refund both stakes after {refundAt} if settlement is still unavailable.</small>}
+              </div>
+            )}
+
+            {!isDevnetEscrow && viewBattle.status === 'active' && viewBattle.tokenA.perf !== undefined && viewBattle.tokenB?.perf !== undefined && (
               <>
                 <div className="progress-bar-wrap">
                   <div

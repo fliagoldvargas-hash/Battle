@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { isOnchainEscrowEnabled } from '../services/onchainEscrow'
 import './BattleCard.css'
 
 function formatTime(seconds) {
@@ -11,6 +12,7 @@ function formatTime(seconds) {
 
 export default function BattleCard({ battle, onClick }) {
   const [timeLeft, setTimeLeft] = useState(0)
+  const isDevnetEscrow = isOnchainEscrowEnabled()
 
   useEffect(() => {
     if (battle.status !== 'active') return
@@ -65,7 +67,7 @@ export default function BattleCard({ battle, onClick }) {
           <div className="battle-token token-a">
             <div className="token-symbol">{battle.tokenA.symbol}</div>
             <div className="token-mc">MC: {battle.tokenA.mc}</div>
-            {battle.tokenA.perf !== undefined && (
+            {!isDevnetEscrow && battle.tokenA.perf !== undefined && (
               <div className={`token-perf ${battle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
                 {battle.tokenA.perf >= 0 ? '+' : ''}{Number(battle.tokenA.perf).toFixed(4)}%
               </div>
@@ -78,7 +80,7 @@ export default function BattleCard({ battle, onClick }) {
             <div className="battle-token token-b">
               <div className="token-symbol">{battle.tokenB.symbol}</div>
               <div className="token-mc">MC: {battle.tokenB.mc}</div>
-              {battle.tokenB.perf !== undefined && (
+              {!isDevnetEscrow && battle.tokenB.perf !== undefined && (
                 <div className={`token-perf ${battle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
                 {battle.tokenB.perf >= 0 ? '+' : ''}{Number(battle.tokenB.perf).toFixed(4)}%
                 </div>
@@ -111,6 +113,9 @@ export default function BattleCard({ battle, onClick }) {
             <button className="view-btn" onClick={e => { e.stopPropagation(); onClick?.(battle) }}>View →</button>
           )}
         </div>
+        {isDevnetEscrow && battle.status === 'active' && (
+          <p className="devnet-card-note">Escrow funded on Devnet · price tracking starts with the oracle</p>
+        )}
       </div>
     </div>
   )

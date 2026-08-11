@@ -175,6 +175,39 @@
   position: relative;
 }
 
+.devnet-notice,
+.escrow-status {
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  border-radius: var(--radius-md);
+  color: #fcd34d;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.devnet-notice strong,
+.escrow-status strong {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+
+.devnet-notice span,
+.escrow-status span,
+.escrow-status small {
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.escrow-status {
+  display: grid;
+  margin: 1.25rem 0;
+}
+
 .form-hint {
   margin: 0.5rem 0 0;
   color: var(--muted);

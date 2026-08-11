@@ -1,22 +1,26 @@
 import './Contract.css'
 
 export default function Contract() {
+  const isDevnet = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
+
   return (
     <section className="contract-section">
       <div className="page-header">
         <h1 className="page-title">Protocol status</h1>
-        <p className="page-subtitle">Clear information about how Token Battle settles today.</p>
+        <p className="page-subtitle">Clear information about what this deployment can do today.</p>
       </div>
 
       <div className="contract-container">
         <div className="contract-card animate-in">
           <div className="contract-title">On-chain contract</div>
-          <div className="status-line status-line-warning">
-            <span aria-hidden="true">!</span>
-            No Token Battle smart contract is deployed.
+          <div className="status-line status-line-neutral">
+            <span aria-hidden="true">i</span>
+            {isDevnet ? 'Devnet escrow program deployed for testing.' : 'Contract status is not available in this deployment.'}
           </div>
           <p className="contract-copy">
-            Battles currently use a server-managed Solana treasury. Deposits and payouts are signed through Privy and recorded on Solana.
+            {isDevnet
+              ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
+              : 'This screen does not make claims about an escrow deployment or real-fund settlement.'}
           </p>
         </div>
 
@@ -24,9 +28,9 @@ export default function Contract() {
           <div className="contract-title">Settlement</div>
           <ul className="protocol-list">
             <li>Both players deposit SOL before a battle becomes active.</li>
-            <li>At close, the winner receives 99.75% of the pot.</li>
-            <li>0.25% is sent to the platform fee treasury and recorded internally.</li>
-            <li>Each payout has a Solana transaction signature stored with the battle.</li>
+            <li>Winner calculation, the 0.25% fee, and automatic payout are not enabled yet.</li>
+            <li>At the end of a Devnet battle, the pot remains in escrow until the oracle settlement is available.</li>
+            <li>As a fallback, either player can refund both Devnet stakes after the configured safety delay.</li>
           </ul>
         </div>
 
@@ -37,7 +41,7 @@ export default function Contract() {
             No independent audit has been completed yet.
           </div>
           <p className="contract-copy">
-            Do not treat this protocol as audited or trustless. An audited on-chain escrow program must be deployed before making either claim.
+            Do not treat this protocol as audited, production-ready, or trustless. The escrow program is a Devnet test deployment and has not undergone an independent security audit.
           </p>
         </div>
       </div>

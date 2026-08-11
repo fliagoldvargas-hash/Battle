@@ -40,6 +40,18 @@
   background-clip: text;
 }
 
+.network-badge {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: var(--radius-full);
+  color: #fbbf24;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
+  padding: 0.25rem 0.45rem;
+}
+
 .nav-links {
   display: flex;
   gap: 2rem;
@@ -192,4 +204,10 @@
     opacity: 1;
     pointer-events: all;
   }
+}
+
+@media (max-width: 480px) {
+  .nav-logo-text { font-size: 1.2rem; }
+  .network-badge { display: none; }
+  .wallet-btn { padding: 0.5rem 0.75rem; }
 }

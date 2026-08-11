@@ -16,6 +16,7 @@ export default function Navbar() {
   const location = useLocation()
   const { wallet, connect, disconnect, isReady } = useWallet()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const isDevnet = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
 
   const handleWallet = async () => {
     if (!wallet.connected) {
@@ -31,6 +32,7 @@ export default function Navbar() {
       <div className="nav-logo" onClick={() => navigate('/')}>
         <span className="nav-logo-icon">⚔</span>
         <span className="nav-logo-text">TOKEN BATTLE</span>
+        {isDevnet && <span className="network-badge" title="This preview uses Solana Devnet test SOL">DEVNET</span>}
       </div>
 
       <button
