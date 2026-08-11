@@ -91,11 +91,17 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
   const transaction = new Transaction().add(instruction)
   transaction.feePayer = new PublicKey(wallet.address)
   transaction.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-  const result = await signAndSendTransaction({
-    transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
-    wallet,
-    chain: 'solana:devnet',
-  })
+  let result
+  try {
+    result = await signAndSendTransaction({
+      transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
+      wallet,
+      chain: 'solana:devnet',
+    })
+  } catch (error) {
+    console.error('Devnet escrow transaction failed', error)
+    throw error
+  }
   if (typeof result.signature === 'string') return result.signature
   if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
   throw new Error('Wallet did not return a Solana transaction signature.')
