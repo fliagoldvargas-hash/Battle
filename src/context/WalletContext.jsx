@@ -16,6 +16,17 @@ function isUserCancellation(error) {
   return /cancel|reject|declin|clos(ed|ing)/i.test(error instanceof Error ? error.message : String(error ?? ''))
 }
 
+function walletErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/invalid siws message.*nonce/i.test(message)) {
+    return 'The sign-in message expired before it could be verified. Click Connect Wallet and approve the new signature.'
+  }
+  if (/already authenticated/i.test(message)) {
+    return 'Your wallet session is already active. Please try the connection again.'
+  }
+  return message || 'The wallet signature could not be verified. Please try again.'
+}
+
 export function WalletProvider({ children }) {
   const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
@@ -55,13 +66,23 @@ export function WalletProvider({ children }) {
 
       // A connected wallet can be new even when Privy restored an existing
       // session. In that case it must be linked, not used to log in again.
-      if (authenticated) await linkWithSiws(credentials)
-      else await loginWithSiws(credentials)
+      if (authenticated) {
+        await linkWithSiws(credentials)
+      } else {
+        try {
+          await loginWithSiws(credentials)
+        } catch (error) {
+          // Privy can restore a session while the wallet modal is open. The
+          // SIWS message is still valid; attach this wallet to that restored
+          // session instead of surfacing a false "already authenticated" error.
+          if (!/already authenticated/i.test(error instanceof Error ? error.message : String(error ?? ''))) throw error
+          await linkWithSiws(credentials)
+        }
+      }
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
       if (!isUserCancellation(error)) {
-        const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
-        notify('error', 'Wallet Authentication Failed', message)
+        notify('error', 'Wallet Authentication Failed', walletErrorMessage(error))
       }
     } finally {
       authenticationInFlight.current = false
