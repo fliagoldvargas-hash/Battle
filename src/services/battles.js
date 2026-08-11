@@ -34,6 +34,9 @@ export const mapBattle = (battle) => ({
   creator: shortAddress(battle.creator_wallet),
   opponent: battle.opponent_wallet ? shortAddress(battle.opponent_wallet) : undefined,
   winner: battle.winner_symbol,
+  onchainBattleId: battle.onchain_battle_id,
+  onchainBattleAddress: battle.onchain_battle_address,
+  vaultAddress: battle.vault_address,
 })
 
 export async function fetchPublicBattles() {

@@ -11,6 +11,7 @@ const MAX_STAKE_LAMPORTS = 1_000_000_000_000
 const ALLOWED_DURATIONS = new Set([1800, 3600, 7200, 14400, 28800, 86400])
 
 const send = (response, status, body) => response.status(status).json(body)
+const battleNetwork = () => process.env.BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
 
 function readBearerToken(request) {
   const authorization = request.headers.authorization
@@ -109,6 +110,7 @@ async function createBattle({ supabase, userId, walletAddress, payload }) {
   const { data, error } = await supabase
     .from('battles')
     .insert({
+      network: battleNetwork(),
       creator_privy_user_id: userId,
       creator_wallet: walletAddress,
       token_a_mint: token.mint,
@@ -144,6 +146,7 @@ async function joinBattle({ supabase, userId, walletAddress, payload }) {
     .from('battles')
     .select('*')
     .eq('id', payload.battleId)
+    .eq('network', battleNetwork())
     .maybeSingle()
 
   if (readError) throw readError
@@ -263,6 +266,7 @@ export default async function handler(request, response) {
       const { data: battles, error } = await supabase
         .from('battles')
         .select('*')
+        .eq('network', battleNetwork())
         .in('status', ['waiting', 'active', 'finished', 'settled'])
         .order('created_at', { ascending: false })
         .limit(50)

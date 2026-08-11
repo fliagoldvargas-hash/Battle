@@ -1,0 +1,3 @@
+[workspace]
+members = ["programs/token_battle_escrow"]
+resolver = "2"

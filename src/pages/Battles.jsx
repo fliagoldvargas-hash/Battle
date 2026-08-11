@@ -5,14 +5,15 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle } from '../services/battleActions'
+import { createBattle, joinBattle, syncDevnetBattle } from '../services/battleActions'
+import { createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
 
 const PLATFORM_FEE_RATE = 0.0025
 
 export default function Battles() {
-  const { wallet, getAccessToken, depositStake, escrowConfigured } = useWallet()
+  const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
   const [battles, setBattles] = useState([])
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -119,17 +120,24 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
-      const depositSignature = escrowConfigured
-        ? await depositStake(Math.round(stake * 1_000_000_000))
-        : null
-      const newBattle = await createBattle({
-        getAccessToken,
-        walletAddress: wallet.address,
-        token: { mint: token.mint },
-        stakeSol: stake,
-        durationSeconds: selectedDuration,
-        depositSignature,
-      })
+      const newBattle = isOnchainEscrowEnabled()
+        ? await (async () => {
+          const onchain = await createOnchainBattle({
+            wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+            tokenMint: token.mint, stakeLamports: Math.round(stake * 1_000_000_000), durationSeconds: selectedDuration,
+          })
+          return syncDevnetBattle({
+            getAccessToken, walletAddress: wallet.address,
+            body: { action: 'create', ...onchain },
+          })
+        })()
+        : await (async () => {
+          const depositSignature = escrowConfigured ? await depositStake(Math.round(stake * 1_000_000_000)) : null
+          return createBattle({
+            getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
+            stakeSol: stake, durationSeconds: selectedDuration, depositSignature,
+          })
+        })()
       setBattles(currentBattles => [newBattle, ...currentBattles])
       notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
       setCreateOpen(false)
@@ -162,16 +170,24 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
-      const depositSignature = escrowConfigured
-        ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000))
-        : null
-      const joinedBattle = await joinBattle({
-        getAccessToken,
-        walletAddress: wallet.address,
-        battleId: viewBattle.id,
-        token: { mint: token.mint },
-        depositSignature,
-      })
+      const joinedBattle = isOnchainEscrowEnabled()
+        ? await (async () => {
+          const onchain = await joinOnchainBattle({
+            wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+            battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
+          })
+          return syncDevnetBattle({
+            getAccessToken, walletAddress: wallet.address,
+            body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
+          })
+        })()
+        : await (async () => {
+          const depositSignature = escrowConfigured ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000)) : null
+          return joinBattle({
+            getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id,
+            token: { mint: token.mint }, depositSignature,
+          })
+        })()
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
       notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
       setViewBattle(null)
