@@ -54,8 +54,20 @@ create table if not exists public.battle_price_snapshots (
   unique (battle_id, captured_at)
 );
 
+create table if not exists public.platform_fee_receipts (
+  id bigint generated always as identity primary key,
+  battle_id uuid not null unique references public.battles(id) on delete restrict,
+  fee_lamports numeric(20, 0) not null check (fee_lamports > 0),
+  fee_wallet text not null,
+  settlement_signature text not null,
+  status text not null default 'pending' check (status in ('pending', 'settled')),
+  created_at timestamptz not null default now(),
+  settled_at timestamptz
+);
+
 create index if not exists battles_status_created_at_idx on public.battles (status, created_at desc);
 create index if not exists battle_price_snapshots_battle_id_captured_at_idx on public.battle_price_snapshots (battle_id, captured_at desc);
+create index if not exists platform_fee_receipts_settled_at_idx on public.platform_fee_receipts (settled_at desc);
 create index if not exists battles_escrow_state_idx on public.battles (escrow_state, ends_at);
 create unique index if not exists battles_creator_deposit_signature_uidx
   on public.battles (creator_deposit_signature)
@@ -66,8 +78,9 @@ create unique index if not exists battles_opponent_deposit_signature_uidx
 
 alter table public.battles enable row level security;
 alter table public.battle_price_snapshots enable row level security;
+alter table public.platform_fee_receipts enable row level security;
 
-revoke all on public.battles, public.battle_price_snapshots from anon, authenticated;
+revoke all on public.battles, public.battle_price_snapshots, public.platform_fee_receipts from anon, authenticated;
 grant select on public.battles, public.battle_price_snapshots to anon, authenticated;
 
 drop policy if exists "Anyone can read battles" on public.battles;

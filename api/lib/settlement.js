@@ -122,13 +122,33 @@ export async function settleFinishedBattles(supabase, limit = 25) {
       for (const payout of payouts) {
         if (!payout.wallet || !Number.isSafeInteger(payout.amount) || payout.amount <= 0) throw new Error('Invalid battle payout.')
       }
+
+      // Create the accounting entry before broadcasting. A later timeout can
+      // never make a completed fee disappear from the internal ledger.
+      const { error: receiptError } = await supabase.from('platform_fee_receipts').upsert({
+        battle_id: claimedBattle.id,
+        fee_lamports: fee,
+        fee_wallet: settlement.feeTreasury,
+        settlement_signature: claimToken,
+        status: 'pending',
+      }, { onConflict: 'battle_id' })
+      if (receiptError) throw receiptError
+
       const transaction = await buildPayoutTransaction({ rpc, source: settlement.treasury, payouts })
       const signatures = [await sendTransfer({ privy, walletId: settlement.walletId, transaction })]
+      const settledAt = new Date().toISOString()
+      const { error: receiptUpdateError } = await supabase.from('platform_fee_receipts').update({
+        settlement_signature: signatures.join(','),
+        status: 'settled',
+        settled_at: settledAt,
+      }).eq('battle_id', claimedBattle.id).eq('settlement_signature', claimToken)
+      if (receiptUpdateError) throw receiptUpdateError
+
       const { error: updateError } = await supabase.from('battles').update({
         settlement_signature: signatures.join(','),
         escrow_state: claimedBattle.winner_mint ? 'settled' : 'refunded',
         escrow_error: null,
-        updated_at: new Date().toISOString(),
+        updated_at: settledAt,
       }).eq('id', claimedBattle.id).eq('status', 'finished').eq('settlement_signature', claimToken)
       if (updateError) throw updateError
       results.push({ id: claimedBattle.id, signatures })
