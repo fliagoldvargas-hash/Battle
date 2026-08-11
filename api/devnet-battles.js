@@ -2,7 +2,7 @@ import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
 import { PublicKey } from '@solana/web3.js'
 import { createHash } from 'node:crypto'
-import { getPumpFunToken } from './lib/pumpfun.js'
+import { getPumpFunToken } from '../server/pumpfun.js'
 
 const ALLOWED_DURATIONS = new Set([1800, 3600, 7200, 14400, 28800, 86400])
 const ADDRESS = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/

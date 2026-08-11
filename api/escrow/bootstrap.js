@@ -1,5 +1,5 @@
 import { PrivyClient } from '@privy-io/node'
-import { assertCronRequest } from '../lib/serverSupabase.js'
+import { assertCronRequest } from '../../server/serverSupabase.js'
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') {

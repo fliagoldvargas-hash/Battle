@@ -1,9 +1,9 @@
 import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
-import { getPumpFunToken } from './lib/pumpfun.js'
-import { escrowConfiguration, verifyStakeTransfer } from './lib/escrow.js'
-import { processActiveBattles } from './lib/processBattles.js'
-import { settleFinishedBattles } from './lib/settlement.js'
+import { getPumpFunToken } from '../server/pumpfun.js'
+import { escrowConfiguration, verifyStakeTransfer } from '../server/escrow.js'
+import { processActiveBattles } from '../server/processBattles.js'
+import { settleFinishedBattles } from '../server/settlement.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000

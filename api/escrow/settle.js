@@ -1,5 +1,5 @@
-import { assertCronRequest, createServerSupabase } from '../lib/serverSupabase.js'
-import { settleFinishedBattles } from '../lib/settlement.js'
+import { assertCronRequest, createServerSupabase } from '../../server/serverSupabase.js'
+import { settleFinishedBattles } from '../../server/settlement.js'
 
 export default async function handler(request, response) {
   if (request.method !== 'POST') {

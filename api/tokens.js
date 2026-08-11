@@ -1,4 +1,4 @@
-import { getPumpFunToken } from './lib/pumpfun.js'
+import { getPumpFunToken } from '../server/pumpfun.js'
 
 const send = (response, status, body) => response.status(status).json(body)
 
