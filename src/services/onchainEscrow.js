@@ -87,24 +87,23 @@ function deriveAccounts(id) {
 }
 
 async function send({ wallet, signAndSendTransaction, instruction }) {
-  const connection = new Connection(RPC_URL, 'confirmed')
-  const transaction = new Transaction().add(instruction)
-  transaction.feePayer = new PublicKey(wallet.address)
-  transaction.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-  let result
   try {
-    result = await signAndSendTransaction({
+    const connection = new Connection(RPC_URL, 'confirmed')
+    const transaction = new Transaction().add(instruction)
+    transaction.feePayer = new PublicKey(wallet.address)
+    transaction.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
+    const result = await signAndSendTransaction({
       transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
       wallet,
       chain: 'solana:devnet',
     })
+    if (typeof result.signature === 'string') return result.signature
+    if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
+    throw new Error('Wallet did not return a Solana transaction signature.')
   } catch (error) {
     console.error('Devnet escrow transaction failed', error)
     throw error
   }
-  if (typeof result.signature === 'string') return result.signature
-  if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
-  throw new Error('Wallet did not return a Solana transaction signature.')
 }
 
 export async function createOnchainBattle({ wallet, signAndSendTransaction, tokenMint, stakeLamports, durationSeconds }) {
