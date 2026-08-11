@@ -1,6 +1,7 @@
 name: Settle Devnet oracle battles
 
 on:
+  # Temporary push trigger verifies the OIDC path before the daily schedule is left alone.
   push:
     branches:
       - main
