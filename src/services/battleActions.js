@@ -51,6 +51,19 @@ export function syncDevnetEscrowAction(input) {
   })
 }
 
+export async function recoverDevnetBattles({ getAccessToken, walletAddress }) {
+  let accessToken = await getAccessToken()
+  if (!accessToken) throw new Error('Your Privy session expired. Please reconnect your wallet.')
+  const response = await fetch('/api/devnet-battles', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'recover', walletAddress }),
+  })
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || 'Unable to recover Devnet battles.')
+  return (result.battles ?? []).map(mapBattle)
+}
+
 export function createBattle(input) {
   return postBattleAction({
     getAccessToken: input.getAccessToken,

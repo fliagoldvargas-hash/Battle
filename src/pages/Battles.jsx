@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
 import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
+import { createBattle, joinBattle, recoverDevnetBattles, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import './Battles.css'
@@ -29,6 +29,7 @@ export default function Battles() {
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
+  const recoveredWallet = useRef('')
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -56,6 +57,22 @@ export default function Battles() {
       clearInterval(interval)
     }
   }, [refreshBattles])
+
+  useEffect(() => {
+    if (!wallet.connected || !isOnchainEscrowEnabled() || recoveredWallet.current === wallet.address) return
+    recoveredWallet.current = wallet.address
+    void recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
+      .then((recovered) => {
+        if (recovered.length) {
+          notify('info', 'Devnet Battle Restored', 'Your confirmed escrow battle was restored.')
+          return refreshBattles()
+        }
+        return undefined
+      })
+      .catch((error) => {
+        console.warn('Devnet battle recovery skipped', error)
+      })
+  }, [getAccessToken, refreshBattles, wallet.address, wallet.connected])
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]

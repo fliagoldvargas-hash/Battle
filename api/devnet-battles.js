@@ -138,6 +138,47 @@ async function verifiedClosedBattle({ signature, battleAddress, vaultAddress, ba
   }
 }
 
+async function saveCreatedBattle({ supabase, identity, chain, signature, battleAddress, vaultAddress }) {
+  const token = await getPumpFunToken(chain.tokenA)
+  const { data, error } = await supabase.from('battles').upsert({
+    network: 'devnet', creator_privy_user_id: identity.userId, creator_wallet: identity.wallet,
+    token_a_mint: token.mint, token_a_symbol: token.symbol, token_a_market_cap: token.marketCap, token_a_change_pct: 0,
+    stake_lamports: chain.stake, pot_lamports: chain.stake, duration_seconds: chain.duration,
+    escrow_state: 'awaiting_deposits', escrow_program_id: env('ESCROW_PROGRAM_ID'), escrow_account: vaultAddress,
+    onchain_battle_address: battleAddress, onchain_battle_id: chain.id, vault_address: vaultAddress,
+    creator_deposit_signature: signature,
+  }, { onConflict: 'network,onchain_battle_address' }).select('*').single()
+  if (error) throw error
+  return data
+}
+
+async function recoverWaitingBattles({ supabase, identity }) {
+  const programId = env('ESCROW_PROGRAM_ID')
+  const accounts = await rpc('getProgramAccounts', [programId, { encoding: 'base64', commitment: 'confirmed' }])
+  const recovered = []
+
+  for (const account of accounts) {
+    if (!account.account?.data?.[0]) continue
+    let chain
+    try {
+      chain = decodeBattle({ data: account.account.data })
+    } catch {
+      continue
+    }
+    if (chain.status !== 0 || chain.creator !== identity.wallet || !ALLOWED_DURATIONS.has(chain.duration)) continue
+
+    const { vault } = derivedAccounts(programId, chain.id)
+    const signatures = await rpc('getSignaturesForAddress', [account.pubkey, { limit: 10, commitment: 'confirmed' }])
+    const transaction = signatures.find((entry) => entry.err === null)
+    if (!transaction) continue
+    recovered.push(await saveCreatedBattle({
+      supabase, identity, chain, signature: transaction.signature, battleAddress: account.pubkey, vaultAddress: vault,
+    }))
+  }
+
+  return recovered
+}
+
 export default async function handler(request, response) {
   if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' })
   try {
@@ -145,6 +186,10 @@ export default async function handler(request, response) {
     const { privy, supabase } = clients()
     const identity = await walletFor(request, privy)
     const payload = request.body || {}
+    if (payload.action === 'recover') {
+      const battles = await recoverWaitingBattles({ supabase, identity })
+      return send(response, 200, { battles })
+    }
     if (payload.action === 'cancel' || payload.action === 'refund') {
       await verifiedClosedBattle({ ...payload, instructionName: payload.action === 'cancel' ? 'cancel_waiting' : 'refund_expired' })
       const { data: existing, error: existingError } = await supabase.from('battles')
@@ -166,16 +211,9 @@ export default async function handler(request, response) {
     const chain = await verifiedBattle({ ...payload, instructionName: payload.action === 'create' ? 'create_battle' : 'join_battle' })
     if (payload.action === 'create') {
       if (!ALLOWED_DURATIONS.has(chain.duration) || chain.status !== 0 || chain.creator !== identity.wallet) throw Object.assign(new Error('Unexpected Devnet battle state.'), { status: 409 })
-      const token = await getPumpFunToken(chain.tokenA)
-      const { data, error } = await supabase.from('battles').upsert({
-        network: 'devnet', creator_privy_user_id: identity.userId, creator_wallet: identity.wallet,
-        token_a_mint: token.mint, token_a_symbol: token.symbol, token_a_market_cap: token.marketCap, token_a_change_pct: 0,
-        stake_lamports: chain.stake, pot_lamports: chain.stake, duration_seconds: chain.duration,
-        escrow_state: 'awaiting_deposits', escrow_program_id: env('ESCROW_PROGRAM_ID'), escrow_account: payload.vaultAddress,
-        onchain_battle_address: payload.battleAddress, onchain_battle_id: chain.id, vault_address: payload.vaultAddress,
-        creator_deposit_signature: payload.signature,
-      }, { onConflict: 'network,onchain_battle_address' }).select('*').single()
-      if (error) throw error
+      const data = await saveCreatedBattle({
+        supabase, identity, chain, signature: payload.signature, battleAddress: payload.battleAddress, vaultAddress: payload.vaultAddress,
+      })
       return send(response, 200, { battle: data })
     }
     if (payload.action === 'join') {
