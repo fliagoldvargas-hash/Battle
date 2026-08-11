@@ -30,10 +30,21 @@ export function WalletProvider({ children }) {
     try {
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
-      const { signature } = await solanaWallet.signMessage({ message: encodedMessage })
+      // `useConnectWallet` returns a connected-wallet descriptor whose Solana
+      // signer is exposed as `provider`; `useWallets` returns the signer itself.
+      // Accept both shapes so SIWS works immediately after Phantom/Solflare connects.
+      const signingWallet = typeof solanaWallet.signMessage === 'function'
+        ? solanaWallet
+        : solanaWallet.provider
+      if (!signingWallet || typeof signingWallet.signMessage !== 'function') {
+        throw new Error('The connected Solana wallet cannot sign messages yet. Please reconnect it.')
+      }
+      const { signature } = await signingWallet.signMessage({ message: encodedMessage })
       await loginWithSiws({
         signature: signatureToBase64(signature),
         message,
+        walletClientType: solanaWallet.walletClientType,
+        connectorType: solanaWallet.connectorType,
       })
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
