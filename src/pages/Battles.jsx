@@ -121,6 +121,22 @@ export default function Battles() {
     }
   }
 
+  const recoverConfirmedDevnetBattle = async (battleAddress) => {
+    // The wallet can broadcast before every Devnet RPC replica has the new
+    // account state. Keep synchronizing a confirmed action instead of showing
+    // a false error to the user.
+    for (const delay of [0, 1_500, 3_000, 4_500]) {
+      if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay))
+      const recovered = await recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
+      const battle = recovered.find((candidate) => candidate.onchainBattleAddress === battleAddress)
+      if (battle) {
+        await refreshBattles()
+        return battle
+      }
+    }
+    return null
+  }
+
   const formatMarketCap = (marketCap) => {
     if (!Number.isFinite(marketCap)) return 'MC unavailable'
     if (marketCap >= 1_000_000_000) return `MC $${(marketCap / 1_000_000_000).toFixed(2)}B`
@@ -150,10 +166,16 @@ export default function Battles() {
             wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
             tokenMint: token.mint, stakeLamports: Math.round(stake * 1_000_000_000), durationSeconds: selectedDuration,
           })
-          return syncDevnetBattle({
-            getAccessToken, walletAddress: wallet.address,
-            body: { action: 'create', ...onchain },
-          })
+          try {
+            return await syncDevnetBattle({
+              getAccessToken, walletAddress: wallet.address,
+              body: { action: 'create', ...onchain },
+            })
+          } catch (syncError) {
+            const recovered = await recoverConfirmedDevnetBattle(onchain.battleAddress)
+            if (recovered) return recovered
+            throw syncError
+          }
         })()
         : await (async () => {
           const depositSignature = escrowConfigured ? await depositStake(Math.round(stake * 1_000_000_000)) : null
@@ -216,11 +238,7 @@ export default function Battles() {
             body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
           })
         } catch (syncError) {
-          // The join was already accepted by Solana. One recovery pass makes
-          // the UI converge even if the first server synchronization raced a
-          // Devnet RPC replica.
-          const recovered = await recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
-          joinedBattle = recovered.find((battle) => battle.onchainBattleAddress === onchain.battleAddress)
+          joinedBattle = await recoverConfirmedDevnetBattle(onchain.battleAddress)
           if (!joinedBattle) throw syncError
         }
       } else {
