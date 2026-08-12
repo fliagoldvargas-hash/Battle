@@ -117,33 +117,42 @@ async function settleOnchain({ battle, winner, settlement, connection, programId
     preflightCommitment: 'confirmed',
     maxRetries: 3,
   })
-  try {
-    const confirmation = await connection.confirmTransaction({ signature, ...latestBlockhash }, 'confirmed')
-    if (confirmation.value.err) throw new Error('Devnet oracle settlement was rejected on-chain.')
-    return signature
-  } catch (error) {
-    // A public RPC can time out after broadcasting. Check once before treating
-    // the payment as uncertain; a later run will reconcile any still-pending
-    // signature safely from the closed escrow account.
-    const status = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]
-    if (status && !status.err && ['confirmed', 'finalized'].includes(status.confirmationStatus)) return signature
-    error.signature = signature
-    throw error
-  }
+  // Broadcasting gives Solana the signed payment immediately. Confirmation is
+  // deliberately reconciled in the next short scheduler tick so this request
+  // remains fast and cannot time out after a successful broadcast.
+  return signature
 }
 
 async function reconcilePendingSettlements({ supabase, connection, programId }) {
   const { data: pending, error } = await supabase.from('battles')
-    .select('id,onchain_battle_address,settlement_signature')
+    .select('id,onchain_battle_address,settlement_signature,updated_at')
     .eq('network', 'devnet')
     .eq('status', 'active')
     .like('settlement_signature', 'oracle-pending:%')
   if (error) throw error
 
+  const awaitingConfirmation = new Set()
   for (const battle of pending ?? []) {
     const account = await connection.getAccountInfo(new PublicKey(battle.onchain_battle_address), 'confirmed')
-    if (account) continue
-    const signatures = await connection.getSignaturesForAddress(new PublicKey(battle.onchain_battle_address), { limit: 10 }, 'confirmed')
+    const submittedSignature = battle.settlement_signature.split(':').at(-1)
+    const hasSubmittedSignature = /^[1-9A-HJ-NP-Za-km-z]{80,100}$/.test(submittedSignature)
+    if (account) {
+      if (!hasSubmittedSignature) continue
+      const status = (await connection.getSignatureStatuses([submittedSignature], { searchTransactionHistory: true })).value[0]
+      const ageMilliseconds = Date.now() - new Date(battle.updated_at).getTime()
+      if (status?.err || (!status && ageMilliseconds > 120_000)) {
+        const { error: resetError } = await supabase.from('battles').update({
+          settlement_signature: null, escrow_state: 'funded', escrow_error: null, updated_at: new Date().toISOString(),
+        }).eq('id', battle.id).eq('settlement_signature', battle.settlement_signature)
+        if (resetError) throw resetError
+      } else {
+        awaitingConfirmation.add(battle.id)
+      }
+      continue
+    }
+    const signatures = hasSubmittedSignature
+      ? [{ signature: submittedSignature }]
+      : await connection.getSignaturesForAddress(new PublicKey(battle.onchain_battle_address), { limit: 10 }, 'confirmed')
     const signature = signatures.find((entry) => !entry.err)?.signature ?? battle.settlement_signature
     const settledAt = new Date().toISOString()
     const { error: battleError } = await supabase.from('battles').update({
@@ -155,11 +164,12 @@ async function reconcilePendingSettlements({ supabase, connection, programId }) 
     }).eq('battle_id', battle.id)
     if (receiptError) throw receiptError
   }
+  return awaitingConfirmation
 }
 
 export async function settleDevnetBattles(supabase, limit = 1) {
   const { connection, programId, authority } = oracleConfig()
-  await reconcilePendingSettlements({ supabase, connection, programId })
+  const awaitingConfirmation = await reconcilePendingSettlements({ supabase, connection, programId })
   const now = new Date().toISOString()
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
@@ -177,6 +187,7 @@ export async function settleDevnetBattles(supabase, limit = 1) {
 
   const results = []
   for (const battle of battles ?? []) {
+    if (awaitingConfirmation.has(battle.id)) continue
     let onchainSignature
     try {
       const settlement = await readOnchainBattle({ battle, connection, programId })
@@ -212,29 +223,18 @@ export async function settleDevnetBattles(supabase, limit = 1) {
       if (receiptError) throw receiptError
 
       onchainSignature = await settleOnchain({ battle: claimed, winner: outcome.winner, settlement, connection, programId, authority })
-      const settledAt = new Date().toISOString()
-      const { error: settledError } = await supabase.from('battles').update({
-        status: 'settled', escrow_state: 'settled', settlement_signature: onchainSignature, escrow_error: null, updated_at: settledAt,
+      const submittedClaim = `${claim}:${onchainSignature}`
+      const { error: submittedError } = await supabase.from('battles').update({
+        settlement_signature: submittedClaim, updated_at: new Date().toISOString(),
       }).eq('id', claimed.id).eq('settlement_signature', claim)
-      if (settledError) throw settledError
+      if (submittedError) throw submittedError
       const { error: receiptUpdateError } = await supabase.from('platform_fee_receipts').update({
-        settlement_signature: onchainSignature, status: 'settled', settled_at: settledAt,
+        settlement_signature: submittedClaim, status: 'pending', settled_at: null,
       }).eq('battle_id', claimed.id).eq('settlement_signature', claim)
       if (receiptUpdateError) throw receiptUpdateError
-      results.push({ id: claimed.id, signature: onchainSignature, winner: outcome.winner.mint })
+      results.push({ id: claimed.id, signature: onchainSignature, winner: outcome.winner.mint, broadcast: true })
     } catch (error) {
       console.error('Devnet oracle settlement failed', { battleId: battle.id, error })
-      if (onchainSignature) {
-        const settledAt = new Date().toISOString()
-        await supabase.from('battles').update({
-          status: 'settled', escrow_state: 'settled', settlement_signature: onchainSignature, escrow_error: null, updated_at: settledAt,
-        }).eq('id', battle.id).like('settlement_signature', 'oracle-pending:%')
-        await supabase.from('platform_fee_receipts').update({
-          settlement_signature: onchainSignature, status: 'settled', settled_at: settledAt,
-        }).eq('battle_id', battle.id)
-        results.push({ id: battle.id, signature: onchainSignature, recovered: true })
-        continue
-      }
       await supabase.from('battles').update({
         escrow_state: 'error', escrow_error: 'oracle_settlement_requires_review', updated_at: new Date().toISOString(),
       }).eq('id', battle.id).like('settlement_signature', 'oracle-pending:%')
