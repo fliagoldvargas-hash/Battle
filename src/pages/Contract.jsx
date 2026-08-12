@@ -29,7 +29,7 @@ export default function Contract() {
           <ul className="protocol-list">
             <li>Both players deposit SOL before a battle becomes active.</li>
             <li>The oracle compares both Pump.fun market-cap changes to four decimals at settlement.</li>
-            <li>Settlement sends the 0.25% platform fee and automatically pays the remaining pot to the winner once per day.</li>
+            <li>Settlement sends the 0.25% platform fee and automatically pays the remaining pot to the winner after the battle ends.</li>
             <li>As a fallback, either player can refund both Devnet stakes after the configured safety delay.</li>
           </ul>
         </div>

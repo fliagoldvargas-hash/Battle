@@ -119,7 +119,7 @@ export default function BattleCard({ battle, onClick, walletAddress }) {
           )}
         </div>
         {isDevnetEscrow && battle.status === 'active' && (
-          <p className="devnet-card-note">Escrow funded on Devnet · oracle settlement runs daily</p>
+          <p className="devnet-card-note">Escrow funded on Devnet · oracle settlement runs automatically after the battle ends</p>
         )}
         {onchainBattleUrl && (
           <a
