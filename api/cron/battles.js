@@ -4,6 +4,9 @@ import { settleFinishedBattles } from '../../server/settlement.js'
 import { settleDevnetBattles } from '../../server/devnetOracle.js'
 
 const send = (response, status, body) => response.status(status).json(body)
+const isDevnetDeployment = () => (
+  process.env.BATTLE_NETWORK === 'devnet' || process.env.VITE_BATTLE_NETWORK === 'devnet'
+)
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' })
@@ -11,7 +14,7 @@ export default async function handler(request, response) {
   try {
     await assertCronRequest(request)
     const supabase = createServerSupabase()
-    if (process.env.BATTLE_NETWORK === 'devnet') {
+    if (isDevnetDeployment()) {
       const settlements = await settleDevnetBattles(supabase)
       return send(response, 200, { processed: settlements.length, results: settlements, settled: settlements.length })
     }

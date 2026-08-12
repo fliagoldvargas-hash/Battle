@@ -143,9 +143,9 @@ export async function settleDevnetBattles(supabase, limit = 25) {
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
     .eq('network', 'devnet')
-    .eq('status', 'active')
-    .eq('escrow_state', 'funded')
-    .is('settlement_signature', null)
+    .in('status', ['active', 'finished'])
+    .in('escrow_state', ['funded', 'error'])
+    .or('settlement_signature.is.null,settlement_signature.like.pending:%')
     .lte('ends_at', now)
     .order('ends_at', { ascending: true })
     .limit(limit)
@@ -167,7 +167,7 @@ export async function settleDevnetBattles(supabase, limit = 25) {
         token_b_change_pct: outcome.changeB,
         escrow_error: null,
         updated_at: new Date().toISOString(),
-      }).eq('id', battle.id).eq('status', 'active').eq('escrow_state', 'funded').is('settlement_signature', null).select('*').maybeSingle()
+      }).eq('id', battle.id).in('status', ['active', 'finished']).in('escrow_state', ['funded', 'error']).or('settlement_signature.is.null,settlement_signature.like.pending:%').select('*').maybeSingle()
       if (claimError) throw claimError
       if (!claimed) continue
 
