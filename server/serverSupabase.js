@@ -21,9 +21,11 @@ export function createServerSupabase() {
 }
 
 export async function assertCronRequest(request) {
-  const secret = process.env.CRON_SECRET
+  // Supabase Cron uses its own dedicated secret, kept in Supabase Vault.
+  // Keep the Vercel secret valid as a fallback for Vercel's native cron.
+  const secrets = [process.env.CRON_SECRET, process.env.SUPABASE_CRON_SECRET].filter(Boolean)
   const authorization = request.headers.authorization
-  if (secret && authorization === `Bearer ${secret}`) return
+  if (secrets.some((secret) => authorization === `Bearer ${secret}`)) return
 
   if (authorization?.startsWith('Bearer ')) {
     try {
