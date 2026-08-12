@@ -47,6 +47,20 @@ async function rpc(method, params) {
   return payload.result
 }
 
+const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds))
+
+async function confirmedTransaction(signature) {
+  // Wallet providers can return a signature before every Devnet RPC replica
+  // exposes the transaction. Polling here prevents a valid signed battle from
+  // being rejected merely because the server checked a few hundred ms early.
+  for (const delay of [0, 300, 600, 900, 1_200, 1_500]) {
+    if (delay) await pause(delay)
+    const transaction = await rpc('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])
+    if (transaction) return transaction
+  }
+  return null
+}
+
 function decodeBattle(value) {
   const bytes = Buffer.from(value.data[0], 'base64')
   if (bytes.length < 249) throw new Error('Invalid on-chain battle account.')
@@ -110,7 +124,7 @@ async function verifiedBattle({ signature, battleAddress, vaultAddress, battleId
   if (expected.battle !== battleAddress || expected.vault !== vaultAddress) {
     throw Object.assign(new Error('Devnet escrow addresses do not match the battle identifier.'), { status: 400 })
   }
-  const transaction = await rpc('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])
+  const transaction = await confirmedTransaction(signature)
   const accounts = transaction ? transactionAccounts(transaction) : []
   if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(expected.vault) || !hasEscrowInstruction(transaction, programId, instructionName)) {
     throw Object.assign(new Error('The Devnet transaction was not confirmed by the escrow program.'), { status: 400 })
@@ -131,7 +145,7 @@ async function verifiedClosedBattle({ signature, battleAddress, vaultAddress, ba
   if (expected.battle !== battleAddress || expected.vault !== vaultAddress) {
     throw Object.assign(new Error('Devnet escrow addresses do not match the battle identifier.'), { status: 400 })
   }
-  const transaction = await rpc('getTransaction', [signature, { encoding: 'json', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }])
+  const transaction = await confirmedTransaction(signature)
   const accounts = transaction ? transactionAccounts(transaction) : []
   if (!transaction || transaction.meta?.err || !accounts.includes(programId) || !accounts.includes(battleAddress) || !accounts.includes(vaultAddress) || !hasEscrowInstruction(transaction, programId, instructionName)) {
     throw Object.assign(new Error('The Devnet transaction was not confirmed by the escrow program.'), { status: 400 })

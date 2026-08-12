@@ -32,14 +32,18 @@ async function postBattleAction({ getAccessToken, walletAddress, body }) {
 
 async function postDevnetEscrowAction({ getAccessToken, walletAddress, body }) {
   const accessToken = await getPrivyAccessToken(getAccessToken)
-  const response = await fetch('/api/devnet-battles', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...body, walletAddress }),
-  })
-  const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(result.error || 'Unable to synchronize the Devnet battle.')
-  return mapBattle(result.battle)
+  for (const delay of [0, 1_000]) {
+    if (delay) await new Promise(resolve => setTimeout(resolve, delay))
+    const response = await fetch('/api/devnet-battles', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...body, walletAddress }),
+    })
+    const result = await response.json().catch(() => ({}))
+    if (response.ok) return mapBattle(result.battle)
+    const isConfirmationLag = response.status === 400 && result.error === 'The Devnet transaction was not confirmed by the escrow program.'
+    if (!isConfirmationLag || delay) throw new Error(result.error || 'Unable to synchronize the Devnet battle.')
+  }
 }
 
 export function syncDevnetBattle(input) {
