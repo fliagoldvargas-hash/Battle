@@ -6,12 +6,11 @@ import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
 import { createBattle, joinBattle, recoverDevnetBattles, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
-import { cancelOnchainBattle, createOnchainBattle, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
+import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
 import './Battles.css'
 
-const PLATFORM_FEE_RATE = 0.0025
 const REFUND_DELAY_SECONDS = 86_400
 const DEVNET_TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
 
@@ -33,6 +32,7 @@ export default function Battles() {
   const availableDurations = isOnchainEscrowEnabled() ? [DEVNET_TEST_DURATION, ...DURATIONS] : DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
+  const [holderFeeQuote, setHolderFeeQuote] = useState(null)
   const recoveredWallet = useRef('')
   const isDevnetEscrow = isOnchainEscrowEnabled()
 
@@ -78,6 +78,23 @@ export default function Battles() {
         console.warn('Devnet battle recovery skipped', error)
       })
   }, [getAccessToken, refreshBattles, wallet.address, wallet.connected])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!wallet.connected || !isDevnetEscrow) {
+      setHolderFeeQuote(null)
+      return undefined
+    }
+    void getHolderFeeQuote(wallet.address)
+      .then((quote) => {
+        if (!cancelled) setHolderFeeQuote(quote)
+      })
+      .catch((error) => {
+        console.warn('Unable to read holder fee quote', error)
+        if (!cancelled) setHolderFeeQuote(null)
+      })
+    return () => { cancelled = true }
+  }, [isDevnetEscrow, wallet.address, wallet.connected])
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]
@@ -314,6 +331,9 @@ export default function Battles() {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
+  const feeBps = holderFeeQuote?.feeBps ?? 100
+  const feeRate = feeBps / 10_000
+
   return (
     <section className="battles-section">
       <div className="page-header">
@@ -433,14 +453,22 @@ export default function Battles() {
             <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
           </div>
           <div className="stake-stat">
-            <span className="stake-display-label">Platform fee <span>(0.25%)</span></span>
-            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</span>
+            <span className="stake-display-label">Platform fee <span>({formatFeePercent(feeBps)})</span></span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * feeRate).toFixed(6)} SOL</span>
           </div>
           <div className="stake-stat">
             <span className="stake-display-label">Winner receives</span>
-            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - feeRate)).toFixed(4)} SOL</span>
           </div>
         </div>
+
+        {isDevnetEscrow && (
+          <p className="form-hint">
+            {holderFeeQuote?.initialized && holderFeeQuote.holderMint !== '11111111111111111111111111111111'
+              ? `Your verified holder balance sets this battle's ${formatFeePercent(feeBps)} fee. The rate is locked on-chain when you create it.`
+              : 'Standard fee: 1%. Holder discounts will activate after the protocol token CA is configured.'}
+          </p>
+        )}
 
         <button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>
           {isSubmitting ? 'SAVING...' : '⚔ CREATE BATTLE'}

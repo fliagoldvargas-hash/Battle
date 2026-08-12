@@ -1,16 +1,11 @@
-# React + Vite
+# Token Battle
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Solana escrow battles with a holder-based platform-fee schedule.
 
-Currently, two official plugins are available:
+## Holder fee administration
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The contract stores the holder-token mint and the complete fee schedule on-chain. A battle reads the creator's verified SPL or Token-2022 balance when it is created and stores the resulting basis-point fee in that battle. Later balance or schedule changes do not affect it.
 
-## React Compiler
+Set `PROTOCOL_ADMIN_WALLET` in Vercel to the public Solana address that is permitted to administer the protocol. That wallet must connect through Privy and can then open **Protocol status** to initialize (once) and load the token CA and four thresholds. The server verifies the Privy session and linked wallet before requesting the on-chain update through the protocol authority.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+For Devnet, set the variable only in the Preview environment. Before Mainnet, deploy a separately audited program and configure the Mainnet RPC, program id, authority, fee treasury, and a Mainnet-specific `PROTOCOL_ADMIN_WALLET`.

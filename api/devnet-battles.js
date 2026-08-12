@@ -69,7 +69,7 @@ function decodeBattle(value) {
   return {
     id, creator: pubkey(24), opponent: pubkey(56), tokenA: pubkey(88), tokenB: pubkey(120),
     stake: Number(bytes.readBigUInt64LE(152)), duration: bytes.readUInt32LE(160),
-    startedAt: Number(bytes.readBigInt64LE(164)), endsAt: Number(bytes.readBigInt64LE(172)), status: bytes.readUInt8(180),
+    startedAt: Number(bytes.readBigInt64LE(164)), endsAt: Number(bytes.readBigInt64LE(172)), status: bytes.readUInt8(180), feeBps: bytes.readUInt16LE(181),
   }
 }
 
@@ -158,6 +158,7 @@ async function saveCreatedBattle({ supabase, identity, chain, signature, battleA
     network: 'devnet', creator_privy_user_id: identity.userId, creator_wallet: identity.wallet,
     token_a_mint: token.mint, token_a_symbol: token.symbol, token_a_market_cap: token.marketCap, token_a_change_pct: 0,
     stake_lamports: chain.stake, pot_lamports: chain.stake, duration_seconds: chain.duration,
+    fee_bps: chain.feeBps,
     escrow_state: 'awaiting_deposits', escrow_program_id: env('ESCROW_PROGRAM_ID'), escrow_account: vaultAddress,
     onchain_battle_address: battleAddress, onchain_battle_id: chain.id, vault_address: vaultAddress,
     creator_deposit_signature: signature,

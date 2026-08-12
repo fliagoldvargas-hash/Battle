@@ -28,6 +28,7 @@ create table if not exists public.battles (
   token_b_change_pct numeric,
   stake_lamports numeric(20, 0) not null check (stake_lamports > 0),
   pot_lamports numeric(20, 0) not null check (pot_lamports > 0),
+  fee_bps smallint not null default 25 check (fee_bps between 0 and 10000),
   duration_seconds integer not null check (duration_seconds > 0),
   starts_at timestamptz,
   ends_at timestamptz,

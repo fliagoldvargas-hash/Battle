@@ -45,6 +45,7 @@ export const mapBattle = (battle) => ({
   opponentDepositSignature: battle.opponent_deposit_signature,
   settlementSignature: battle.settlement_signature,
   escrowState: battle.escrow_state,
+  feeBps: Number(battle.fee_bps ?? 25),
 })
 
 export async function fetchPublicBattles() {

@@ -2,11 +2,12 @@ import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstructi
 
 const PROGRAM_ID = import.meta.env.VITE_ESCROW_PROGRAM_ID
 const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
-const DEVNET = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
+const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
+const CHAIN = `solana:${NETWORK}`
+const EMPTY_PUBLIC_KEY = '11111111111111111111111111111111'
 
 function requireProgram() {
-  if (!DEVNET) throw new Error('The on-chain escrow is only enabled in the Devnet preview.')
-  if (!PROGRAM_ID) throw new Error('Devnet escrow is not configured yet.')
+  if (!PROGRAM_ID) throw new Error('The on-chain escrow is not configured yet.')
   return new PublicKey(PROGRAM_ID)
 }
 
@@ -25,6 +26,12 @@ function u64(value) {
 function u32(value) {
   const out = new Uint8Array(4)
   new DataView(out.buffer).setUint32(0, Number(value), true)
+  return out
+}
+
+function u16(value) {
+  const out = new Uint8Array(2)
+  new DataView(out.buffer).setUint16(0, Number(value), true)
   return out
 }
 
@@ -81,9 +88,10 @@ function base58Encode(bytes) {
 function deriveAccounts(id) {
   const programId = requireProgram()
   const [config] = PublicKey.findProgramAddressSync([new TextEncoder().encode('config')], programId)
+  const [holderConfig] = PublicKey.findProgramAddressSync([new TextEncoder().encode('holder-config')], programId)
   const [battle] = PublicKey.findProgramAddressSync([new TextEncoder().encode('battle'), id], programId)
   const [vault] = PublicKey.findProgramAddressSync([new TextEncoder().encode('vault'), battle.toBytes()], programId)
-  return { programId, config, battle, vault }
+  return { programId, config, holderConfig, battle, vault }
 }
 
 async function send({ wallet, signAndSendTransaction, instruction }) {
@@ -95,7 +103,7 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
     const result = await signAndSendTransaction({
       transaction: transaction.serialize({ requireAllSignatures: false, verifySignatures: false }),
       wallet,
-      chain: 'solana:devnet',
+      chain: CHAIN,
     })
     if (typeof result.signature === 'string') return result.signature
     if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
@@ -106,9 +114,123 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
   }
 }
 
+function accountBytes(account) {
+  if (account?.data instanceof Uint8Array) return account.data
+  if (Array.isArray(account?.data)) return Uint8Array.from(account.data)
+  throw new Error('The Solana RPC returned an unreadable account.')
+}
+
+function pubkeyAt(bytes, offset) {
+  return new PublicKey(bytes.slice(offset, offset + 32)).toBase58()
+}
+
+function readU64(bytes, offset) {
+  return new DataView(bytes.buffer, bytes.byteOffset + offset, 8).getBigUint64(0, true)
+}
+
+function decodeHolderConfig(account) {
+  const bytes = accountBytes(account)
+  if (bytes.length < 84) throw new Error('The holder fee configuration is invalid on-chain.')
+  return {
+    initialized: true,
+    holderMint: pubkeyAt(bytes, 8),
+    decimals: bytes[40],
+    tierMinimums: [readU64(bytes, 41), readU64(bytes, 49), readU64(bytes, 57), readU64(bytes, 65)],
+    feeBps: [
+      new DataView(bytes.buffer, bytes.byteOffset + 73, 2).getUint16(0, true),
+      new DataView(bytes.buffer, bytes.byteOffset + 75, 2).getUint16(0, true),
+      new DataView(bytes.buffer, bytes.byteOffset + 77, 2).getUint16(0, true),
+      new DataView(bytes.buffer, bytes.byteOffset + 79, 2).getUint16(0, true),
+      new DataView(bytes.buffer, bytes.byteOffset + 81, 2).getUint16(0, true),
+    ],
+  }
+}
+
+function defaultHolderConfig() {
+  return {
+    initialized: false,
+    holderMint: EMPTY_PUBLIC_KEY,
+    decimals: 0,
+    tierMinimums: [1_000n, 10_000n, 100_000n, 1_000_000n],
+    feeBps: [100, 75, 50, 25, 10],
+  }
+}
+
+export function formatFeePercent(feeBps) {
+  return `${(Number(feeBps) / 100).toFixed(Number(feeBps) % 100 === 0 ? 0 : 2)}%`
+}
+
+export function rawTokenAmount(value, decimals) {
+  const normalized = String(value ?? '').trim()
+  if (!/^\d+(\.\d+)?$/.test(normalized)) throw new Error('Enter a valid holder-token amount.')
+  const [whole, fraction = ''] = normalized.split('.')
+  if (fraction.length > decimals) throw new Error(`This token supports at most ${decimals} decimal places.`)
+  return BigInt(`${whole}${fraction.padEnd(decimals, '0')}`)
+}
+
+export function displayTokenAmount(raw, decimals) {
+  const value = BigInt(raw)
+  if (!decimals) return value.toString()
+  const padded = value.toString().padStart(decimals + 1, '0')
+  const whole = padded.slice(0, -decimals)
+  const fraction = padded.slice(-decimals).replace(/0+$/, '')
+  return fraction ? `${whole}.${fraction}` : whole
+}
+
+export async function getHolderFeeConfig() {
+  const { holderConfig } = deriveAccounts(new Uint8Array(16))
+  const connection = new Connection(RPC_URL, 'confirmed')
+  const account = await connection.getAccountInfo(holderConfig, 'confirmed')
+  return account ? decodeHolderConfig(account) : defaultHolderConfig()
+}
+
+export async function getEscrowAdmin() {
+  const { config } = deriveAccounts(new Uint8Array(16))
+  const connection = new Connection(RPC_URL, 'confirmed')
+  const account = await connection.getAccountInfo(config, 'confirmed')
+  const bytes = accountBytes(account)
+  if (bytes.length < 40) throw new Error('The escrow configuration is invalid on-chain.')
+  return pubkeyAt(bytes, 8)
+}
+
+async function holderAccountsForWallet(walletAddress, holderConfig) {
+  if (!holderConfig.initialized || holderConfig.holderMint === EMPTY_PUBLIC_KEY) return { balance: 0n, accounts: [] }
+  const connection = new Connection(RPC_URL, 'confirmed')
+  const response = await connection.getTokenAccountsByOwner(new PublicKey(walletAddress), { mint: new PublicKey(holderConfig.holderMint) }, 'confirmed')
+  const accounts = response.value.map((item) => item.pubkey)
+  const balance = response.value.reduce((total, item) => total + readU64(accountBytes(item.account), 64), 0n)
+  return { balance, accounts }
+}
+
+export async function getHolderFeeQuote(walletAddress) {
+  const config = await getHolderFeeConfig()
+  const holding = await holderAccountsForWallet(walletAddress, config)
+  let feeBps = config.feeBps[0]
+  if (config.initialized && config.holderMint !== EMPTY_PUBLIC_KEY) {
+    for (let index = config.tierMinimums.length - 1; index >= 0; index -= 1) {
+      if (holding.balance >= config.tierMinimums[index]) {
+        feeBps = config.feeBps[index + 1]
+        break
+      }
+    }
+  }
+  return { ...config, ...holding, feeBps }
+}
+
+export async function holderMintDecimals(mint) {
+  const connection = new Connection(RPC_URL, 'confirmed')
+  const account = await connection.getAccountInfo(new PublicKey(mint), 'confirmed')
+  const bytes = accountBytes(account)
+  const owner = account?.owner?.toBase58()
+  const supportedTokenPrograms = new Set(['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdYhQPLqP2K1gSN3JwzQfE6VTMZqcxAmVR2qj'])
+  if (!supportedTokenPrograms.has(owner) || bytes.length < 82 || bytes[45] !== 1 || bytes[44] > 18) throw new Error('That address is not an initialized SPL token mint.')
+  return bytes[44]
+}
+
 export async function createOnchainBattle({ wallet, signAndSendTransaction, tokenMint, stakeLamports, durationSeconds }) {
   const id = randomBattleId()
-  const { programId, config, battle, vault } = deriveAccounts(id)
+  const { programId, config, holderConfig, battle, vault } = deriveAccounts(id)
+  const holderQuote = await getHolderFeeQuote(wallet.address)
   const data = concat(await discriminator('create_battle'), id, new PublicKey(tokenMint).toBytes(), u64(stakeLamports), u32(durationSeconds))
   const instruction = new TransactionInstruction({
     programId,
@@ -116,13 +238,52 @@ export async function createOnchainBattle({ wallet, signAndSendTransaction, toke
     keys: [
       { pubkey: new PublicKey(wallet.address), isSigner: true, isWritable: true },
       { pubkey: config, isSigner: false, isWritable: false },
+      { pubkey: holderConfig, isSigner: false, isWritable: false },
       { pubkey: battle, isSigner: false, isWritable: true },
       { pubkey: vault, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      ...holderQuote.accounts.map((pubkey) => ({ pubkey, isSigner: false, isWritable: false })),
     ],
   })
   const signature = await send({ wallet, signAndSendTransaction, instruction })
-  return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id) }
+  return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id), feeBps: holderQuote.feeBps }
+}
+
+export async function initializeHolderFeeConfig({ wallet, signAndSendTransaction }) {
+  const { programId, config, holderConfig } = deriveAccounts(new Uint8Array(16))
+  const instruction = new TransactionInstruction({
+    programId,
+    data: await discriminator('initialize_holder_config'),
+    keys: [
+      { pubkey: new PublicKey(wallet.address), isSigner: true, isWritable: true },
+      { pubkey: config, isSigner: false, isWritable: false },
+      { pubkey: holderConfig, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+  })
+  return send({ wallet, signAndSendTransaction, instruction })
+}
+
+export async function setHolderFeeConfig({ wallet, signAndSendTransaction, holderMint, tierMinimums, feeBps }) {
+  if (tierMinimums.length !== 4 || feeBps.length !== 5) throw new Error('The holder fee configuration is incomplete.')
+  const { programId, config, holderConfig } = deriveAccounts(new Uint8Array(16))
+  const data = concat(
+    await discriminator('set_holder_config'),
+    new PublicKey(holderMint).toBytes(),
+    ...tierMinimums.map(u64),
+    ...feeBps.map(u16),
+  )
+  const instruction = new TransactionInstruction({
+    programId,
+    data,
+    keys: [
+      { pubkey: new PublicKey(wallet.address), isSigner: true, isWritable: false },
+      { pubkey: config, isSigner: false, isWritable: false },
+      { pubkey: holderConfig, isSigner: false, isWritable: true },
+      { pubkey: new PublicKey(holderMint), isSigner: false, isWritable: false },
+    ],
+  })
+  return send({ wallet, signAndSendTransaction, instruction })
 }
 
 export async function joinOnchainBattle({ wallet, signAndSendTransaction, battleIdHex, tokenMint }) {
@@ -177,4 +338,4 @@ export async function refundExpiredOnchainBattle({ wallet, signAndSendTransactio
   return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id) }
 }
 
-export const isOnchainEscrowEnabled = () => DEVNET && Boolean(PROGRAM_ID)
+export const isOnchainEscrowEnabled = () => Boolean(PROGRAM_ID)
