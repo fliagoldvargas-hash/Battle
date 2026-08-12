@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
 import { DURATIONS } from '../data/mockData'
@@ -179,9 +179,13 @@ export default function Battles() {
   }
 
   const openBattle = (battle) => {
-    setViewBattle(battle)
-    setJoinToken(null)
-    setJoinTokenAddress('')
+    // The modal contains a sizeable details view. Marking this non-urgent
+    // keeps the Join button responsive and avoids a misleading INP warning.
+    startTransition(() => {
+      setViewBattle(battle)
+      setJoinToken(null)
+      setJoinTokenAddress('')
+    })
   }
 
   const handleJoin = async () => {
@@ -197,24 +201,34 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
-      const joinedBattle = isOnchainEscrowEnabled()
-        ? await (async () => {
-          const onchain = await joinOnchainBattle({
-            wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
-            battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
-          })
-          return syncDevnetBattle({
+      let joinedBattle
+      if (isOnchainEscrowEnabled()) {
+        const onchain = await joinOnchainBattle({
+          wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+          battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
+        })
+        try {
+          joinedBattle = await syncDevnetBattle({
             getAccessToken, walletAddress: wallet.address,
             body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
           })
-        })()
-        : await (async () => {
+        } catch (syncError) {
+          // The join was already accepted by Solana. One recovery pass makes
+          // the UI converge even if the first server synchronization raced a
+          // Devnet RPC replica.
+          const recovered = await recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
+          joinedBattle = recovered.find((battle) => battle.onchainBattleAddress === onchain.battleAddress)
+          if (!joinedBattle) throw syncError
+        }
+      } else {
+        joinedBattle = await (async () => {
           const depositSignature = escrowConfigured ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000)) : null
           return joinBattle({
             getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id,
             token: { mint: token.mint }, depositSignature,
           })
         })()
+      }
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
       notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
       setViewBattle(null)

@@ -166,6 +166,26 @@ async function saveCreatedBattle({ supabase, identity, chain, signature, battleA
   return data
 }
 
+async function saveJoinedBattle({ supabase, identity, chain, signature, battleAddress }) {
+  const [tokenA, tokenB] = await Promise.all([getPumpFunToken(chain.tokenA), getPumpFunToken(chain.tokenB)])
+  const { data, error } = await supabase.from('battles').update({
+    status: 'active', opponent_privy_user_id: identity.userId, opponent_wallet: identity.wallet,
+    token_a_mint: tokenA.mint, token_a_symbol: tokenA.symbol, token_a_market_cap: tokenA.marketCap, token_a_change_pct: 0,
+    token_b_mint: tokenB.mint, token_b_symbol: tokenB.symbol, token_b_market_cap: tokenB.marketCap, token_b_change_pct: 0,
+    pot_lamports: chain.stake * 2, starts_at: new Date(chain.startedAt * 1000).toISOString(), ends_at: new Date(chain.endsAt * 1000).toISOString(),
+    escrow_state: 'funded', opponent_deposit_signature: signature, updated_at: new Date().toISOString(),
+  }).eq('network', 'devnet').eq('onchain_battle_address', battleAddress).eq('status', 'waiting').select('*').maybeSingle()
+  if (error) throw error
+  if (data) return data
+
+  // A previous request may already have synchronized this exact on-chain join.
+  const { data: existing, error: existingError } = await supabase.from('battles')
+    .select('*').eq('network', 'devnet').eq('onchain_battle_address', battleAddress).maybeSingle()
+  if (existingError) throw existingError
+  if (existing?.opponent_wallet === identity.wallet && existing.status === 'active') return existing
+  throw Object.assign(new Error('The on-chain battle could not be matched to an open Devnet battle.'), { status: 409 })
+}
+
 async function recoverWaitingBattles({ supabase, identity }) {
   const programId = env('ESCROW_PROGRAM_ID')
   const accounts = await rpc('getProgramAccounts', [programId, { encoding: 'base64', commitment: 'confirmed' }])
@@ -179,15 +199,22 @@ async function recoverWaitingBattles({ supabase, identity }) {
     } catch {
       continue
     }
-    if (chain.status !== 0 || chain.creator !== identity.wallet || !ALLOWED_DURATIONS.has(chain.duration)) continue
+    if (!ALLOWED_DURATIONS.has(chain.duration)) continue
 
     const { vault } = derivedAccounts(programId, chain.id)
     const signatures = await rpc('getSignaturesForAddress', [account.pubkey, { limit: 10, commitment: 'confirmed' }])
     const transaction = signatures.find((entry) => entry.err === null)
     if (!transaction) continue
-    recovered.push(await saveCreatedBattle({
-      supabase, identity, chain, signature: transaction.signature, battleAddress: account.pubkey, vaultAddress: vault,
-    }))
+    if (chain.status === 0 && chain.creator === identity.wallet) {
+      recovered.push(await saveCreatedBattle({
+        supabase, identity, chain, signature: transaction.signature, battleAddress: account.pubkey, vaultAddress: vault,
+      }))
+    }
+    if (chain.status === 1 && chain.opponent === identity.wallet) {
+      recovered.push(await saveJoinedBattle({
+        supabase, identity, chain, signature: transaction.signature, battleAddress: account.pubkey,
+      }))
+    }
   }
 
   return recovered
@@ -232,15 +259,9 @@ export default async function handler(request, response) {
     }
     if (payload.action === 'join') {
       if (chain.status !== 1 || chain.opponent !== identity.wallet) throw Object.assign(new Error('Unexpected Devnet join state.'), { status: 409 })
-      const [tokenA, tokenB] = await Promise.all([getPumpFunToken(chain.tokenA), getPumpFunToken(chain.tokenB)])
-      const { data, error } = await supabase.from('battles').update({
-        status: 'active', opponent_privy_user_id: identity.userId, opponent_wallet: identity.wallet,
-        token_a_mint: tokenA.mint, token_a_symbol: tokenA.symbol, token_a_market_cap: tokenA.marketCap, token_a_change_pct: 0,
-        token_b_mint: tokenB.mint, token_b_symbol: tokenB.symbol, token_b_market_cap: tokenB.marketCap, token_b_change_pct: 0,
-        pot_lamports: chain.stake * 2, starts_at: new Date(chain.startedAt * 1000).toISOString(), ends_at: new Date(chain.endsAt * 1000).toISOString(),
-        escrow_state: 'funded', opponent_deposit_signature: payload.signature, updated_at: new Date().toISOString(),
-      }).eq('network', 'devnet').eq('onchain_battle_address', payload.battleAddress).eq('status', 'waiting').select('*').single()
-      if (error) throw error
+      const data = await saveJoinedBattle({
+        supabase, identity, chain, signature: payload.signature, battleAddress: payload.battleAddress,
+      })
       return send(response, 200, { battle: data })
     }
     return send(response, 400, { error: 'Unsupported Devnet escrow action.' })
