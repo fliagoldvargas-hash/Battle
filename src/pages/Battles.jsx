@@ -336,7 +336,7 @@ export default function Battles() {
           <div className="battles-grid">
             {filteredBattles.map((battle, i) => (
               <div key={battle.id} className="animate-in" style={{ animationDelay: `${i * 0.08}s` }}>
-                <BattleCard battle={battle} onClick={openBattle} />
+                <BattleCard battle={battle} onClick={openBattle} walletAddress={wallet.address} />
               </div>
             ))}
           </div>

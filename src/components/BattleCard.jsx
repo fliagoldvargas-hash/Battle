@@ -11,7 +11,7 @@ function formatTime(seconds) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-export default function BattleCard({ battle, onClick }) {
+export default function BattleCard({ battle, onClick, walletAddress }) {
   const [timeLeft, setTimeLeft] = useState(0)
   const isDevnetEscrow = isOnchainEscrowEnabled()
 
@@ -42,6 +42,7 @@ export default function BattleCard({ battle, onClick }) {
   }[battle.status]
 
   const isUrgent = battle.status === 'active' && timeLeft < 300
+  const isCreator = Boolean(walletAddress && battle.creatorAddress === walletAddress)
   const onchainBattleUrl = solanaExplorerAddress(battle.onchainBattleAddress, battle.network)
 
   return (
@@ -110,7 +111,9 @@ export default function BattleCard({ battle, onClick }) {
             </div>
           </div>
           {battle.status === 'waiting' ? (
-            <button className="join-btn" onClick={e => { e.stopPropagation(); onClick?.(battle) }}>Join ⚔</button>
+            <button className="join-btn" onClick={e => { e.stopPropagation(); onClick?.(battle) }}>
+              {isCreator ? 'Manage Battle →' : 'Join ⚔'}
+            </button>
           ) : (
             <button className="view-btn" onClick={e => { e.stopPropagation(); onClick?.(battle) }}>View →</button>
           )}
