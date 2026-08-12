@@ -1,15 +1,15 @@
-name: Settle Devnet oracle battles
+name: Process Devnet battle oracle
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
   id-token: write
 
 jobs:
-  settle:
+  settle-devnet-battles:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -24,7 +24,7 @@ jobs:
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}")"
           echo "token=$(jq --raw-output '.value' <<<"$response")" >> "$GITHUB_OUTPUT"
 
-      - name: Settle completed Devnet battles
+      - name: Settle Devnet battles through the Devnet deployment
         shell: bash
         env:
           OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
