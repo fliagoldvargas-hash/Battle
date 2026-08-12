@@ -55,7 +55,7 @@ export default function Battles() {
     void load()
     const interval = setInterval(() => {
       void refreshBattles().catch(() => {})
-    }, 30_000)
+    }, 10_000)
 
     return () => {
       cancelled = true
@@ -322,7 +322,7 @@ export default function Battles() {
         {isDevnetEscrow && (
           <div className="devnet-notice" role="status">
             <strong>DEVNET TEST MODE</strong>
-            <span>Uses test SOL only. The oracle compares both tokens to four decimals and settles completed battles automatically once per day.</span>
+            <span>Uses test SOL only. The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
           </div>
         )}
       </div>
