@@ -5,8 +5,8 @@ create extension if not exists pg_net;
 create extension if not exists pg_cron;
 
 select cron.schedule(
-  'settle-devnet-battles-every-30-seconds',
-  '30 seconds',
+  'settle-devnet-battles-every-minute',
+  '* * * * *',
   $job$
     select net.http_get(
       url := 'https://battle-git-escrow-devnet-fliagoldvargas-1644s-projects.vercel.app/api/cron/battles',

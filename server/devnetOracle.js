@@ -104,11 +104,32 @@ async function settleOnchain({ battle, winner, settlement, connection, programId
   })
   const transaction = new Transaction().add(instruction)
   transaction.feePayer = authority.publicKey
-  transaction.recentBlockhash = (await connection.getLatestBlockhash('confirmed')).blockhash
-  const signature = await connection.sendTransaction(transaction, [authority], { skipPreflight: false, preflightCommitment: 'confirmed' })
-  const confirmation = await connection.confirmTransaction(signature, 'confirmed')
-  if (confirmation.value.err) throw new Error('Devnet oracle settlement was rejected on-chain.')
-  return signature
+  const latestBlockhash = await connection.getLatestBlockhash('confirmed')
+  transaction.recentBlockhash = latestBlockhash.blockhash
+  transaction.sign(authority)
+
+  // The legacy sendTransaction(signers) path fetches another blockhash even
+  // after one has been set. That was causing public Devnet RPC 429 errors.
+  // Serialize the already signed transaction so one settlement needs only the
+  // blockhash above, one broadcast, and one confirmation request.
+  const signature = await connection.sendRawTransaction(transaction.serialize(), {
+    skipPreflight: false,
+    preflightCommitment: 'confirmed',
+    maxRetries: 3,
+  })
+  try {
+    const confirmation = await connection.confirmTransaction({ signature, ...latestBlockhash }, 'confirmed')
+    if (confirmation.value.err) throw new Error('Devnet oracle settlement was rejected on-chain.')
+    return signature
+  } catch (error) {
+    // A public RPC can time out after broadcasting. Check once before treating
+    // the payment as uncertain; a later run will reconcile any still-pending
+    // signature safely from the closed escrow account.
+    const status = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]
+    if (status && !status.err && ['confirmed', 'finalized'].includes(status.confirmationStatus)) return signature
+    error.signature = signature
+    throw error
+  }
 }
 
 async function reconcilePendingSettlements({ supabase, connection, programId }) {
