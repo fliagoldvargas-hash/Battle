@@ -13,6 +13,7 @@ import './Battles.css'
 
 const PLATFORM_FEE_RATE = 0.0025
 const REFUND_DELAY_SECONDS = 86_400
+const DEVNET_TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
 
 export default function Battles() {
   const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
@@ -29,6 +30,7 @@ export default function Battles() {
   const [joinTokenAddress, setJoinTokenAddress] = useState('')
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
+  const availableDurations = isOnchainEscrowEnabled() ? [DEVNET_TEST_DURATION, ...DURATIONS] : DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const recoveredWallet = useRef('')
@@ -364,7 +366,7 @@ export default function Battles() {
         <div className="form-group">
           <label className="form-label">Battle Duration</label>
           <div className="duration-grid">
-            {DURATIONS.map(d => (
+            {availableDurations.map(d => (
               <div
                 key={d.value}
                 className={`duration-option ${selectedDuration === d.value ? 'selected' : ''}`}
