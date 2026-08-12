@@ -36,6 +36,11 @@ export function WalletProvider({ children }) {
   const authenticationInFlight = useRef(false)
   const connectionInFlight = useRef(false)
   const [isConnecting, setIsConnecting] = useState(false)
+  // Privy can expose more than one linked Solana wallet in the same browser.
+  // Keep the last wallet deliberately selected by the user; selecting the
+  // first linked wallet made a second wallet appear connected while the app
+  // still attempted a battle action with the creator's address.
+  const [selectedWalletAddress, setSelectedWalletAddress] = useState('')
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
     // Privy rejects a second SIWS login while the current session is active.
@@ -93,6 +98,7 @@ export function WalletProvider({ children }) {
 
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet: connectedWallet }) => {
+      setSelectedWalletAddress(connectedWallet.address)
       void authenticateSolanaWallet(connectedWallet)
     },
     onError: (error) => {
@@ -103,9 +109,12 @@ export function WalletProvider({ children }) {
       }
     },
   })
-  const activeWallet = wallets.find((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
-    linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
-  )))
+  const activeWallet = useMemo(() => {
+    const linkedWallets = wallets.filter((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
+      linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
+    )))
+    return linkedWallets.find((connectedWallet) => connectedWallet.address === selectedWalletAddress) ?? linkedWallets[0]
+  }, [selectedWalletAddress, user, wallets])
 
   const wallet = useMemo(() => ({
     connected: Boolean(authenticated && activeWallet),
@@ -132,6 +141,7 @@ export function WalletProvider({ children }) {
       ? (wallets.find((connectedWallet) => connectedWallet.chainType === 'solana') ?? wallets[0])
       : null
     if (connectedSolanaWallet) {
+      setSelectedWalletAddress(connectedSolanaWallet.address)
       void authenticateSolanaWallet(connectedSolanaWallet)
       return
     }
@@ -164,6 +174,7 @@ export function WalletProvider({ children }) {
     } finally {
       try {
         await logout()
+        setSelectedWalletAddress('')
         notify('info', 'Wallet Disconnected', 'Your Privy session and wallet connection have been closed')
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not close your Privy session. Please try again.'
