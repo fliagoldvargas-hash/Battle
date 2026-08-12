@@ -179,13 +179,16 @@ export default function Battles() {
   }
 
   const openBattle = (battle) => {
-    // The modal contains a sizeable details view. Marking this non-urgent
-    // keeps the Join button responsive and avoids a misleading INP warning.
-    startTransition(() => {
-      setViewBattle(battle)
-      setJoinToken(null)
-      setJoinTokenAddress('')
-    })
+    // Defer the modal's substantial details render until after the button
+    // event has completed. Otherwise Chrome reports a misleading INP issue
+    // against the Join button even though no wallet action has started.
+    window.setTimeout(() => {
+      startTransition(() => {
+        setViewBattle(battle)
+        setJoinToken(null)
+        setJoinTokenAddress('')
+      })
+    }, 0)
   }
 
   const handleJoin = async () => {
