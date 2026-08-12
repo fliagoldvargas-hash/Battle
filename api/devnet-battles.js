@@ -267,7 +267,19 @@ export default async function handler(request, response) {
     return send(response, 400, { error: 'Unsupported Devnet escrow action.' })
   } catch (error) {
     const status = error.status ?? 500
-    if (status >= 500) console.error('Devnet escrow sync error', error)
+    // Keep a safe, actionable record of rejected wallet transactions. The
+    // browser only receives a short toast, whereas Vercel logs let us
+    // distinguish a real program rejection from an RPC or Privy delay.
+    const logContext = {
+      status,
+      action: request.body?.action,
+      wallet: request.body?.walletAddress,
+      battleAddress: request.body?.battleAddress,
+      signature: typeof request.body?.signature === 'string' ? `${request.body.signature.slice(0, 10)}…` : undefined,
+      message: error instanceof Error ? error.message : String(error),
+    }
+    if (status >= 500) console.error('Devnet escrow sync error', logContext)
+    else console.warn('Devnet escrow sync rejected', logContext)
     return send(response, status, { error: status >= 500 ? 'Unable to synchronize the Devnet battle.' : error.message })
   }
 }
