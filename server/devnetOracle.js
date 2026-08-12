@@ -157,7 +157,7 @@ async function reconcilePendingSettlements({ supabase, connection, programId }) 
   }
 }
 
-export async function settleDevnetBattles(supabase, limit = 25) {
+export async function settleDevnetBattles(supabase, limit = 1) {
   const { connection, programId, authority } = oracleConfig()
   await reconcilePendingSettlements({ supabase, connection, programId })
   const now = new Date().toISOString()
@@ -166,9 +166,12 @@ export async function settleDevnetBattles(supabase, limit = 25) {
     .eq('network', 'devnet')
     .in('status', ['active', 'finished'])
     .in('escrow_state', ['funded', 'error'])
-    .or('settlement_signature.is.null,settlement_signature.like.pending:%')
+    .or('settlement_signature.is.null,settlement_signature.like.pending:%,settlement_signature.like.oracle-pending:%')
     .lte('ends_at', now)
-    .order('ends_at', { ascending: true })
+    // With a public Devnet RPC, settle one battle at a time. Prioritizing the
+    // newest finished battle gives users the shortest possible payout delay
+    // while older retries are processed on subsequent minute runs.
+    .order('ends_at', { ascending: false })
     .limit(limit)
   if (error) throw error
 
@@ -188,7 +191,7 @@ export async function settleDevnetBattles(supabase, limit = 25) {
         token_b_change_pct: outcome.changeB,
         escrow_error: null,
         updated_at: new Date().toISOString(),
-      }).eq('id', battle.id).in('status', ['active', 'finished']).in('escrow_state', ['funded', 'error']).or('settlement_signature.is.null,settlement_signature.like.pending:%').select('*').maybeSingle()
+      }).eq('id', battle.id).in('status', ['active', 'finished']).in('escrow_state', ['funded', 'error']).or('settlement_signature.is.null,settlement_signature.like.pending:%,settlement_signature.like.oracle-pending:%').select('*').maybeSingle()
       if (claimError) throw claimError
       if (!claimed) continue
 
