@@ -58,6 +58,7 @@ export async function processActiveBattles(supabase, limit = 100, network = 'mai
     .select('*')
     .eq('network', network)
     .eq('status', 'active')
+    .eq('escrow_state', 'funded')
     .not('ends_at', 'is', null)
     .lte('starts_at', new Date().toISOString())
     .limit(limit)

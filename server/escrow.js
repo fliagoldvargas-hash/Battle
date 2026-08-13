@@ -16,8 +16,11 @@ export function escrowConfiguration() {
   return {
     treasury,
     feeTreasury: process.env.ESCROW_FEE_TREASURY_ADDRESS || null,
-    programId: process.env.ESCROW_PROGRAM_ID || null,
-    required: process.env.ESCROW_REQUIRED === 'true',
+    // Treasury mode has no on-chain program. Keep this field for historic
+    // battle rows only; new Mainnet deposits are normal System transfers.
+    programId: process.env.BATTLE_SETTLEMENT_MODE === 'treasury' ? null : process.env.ESCROW_PROGRAM_ID || null,
+    required: process.env.BATTLE_SETTLEMENT_MODE === 'treasury' || process.env.ESCROW_REQUIRED === 'true',
+    mode: process.env.BATTLE_SETTLEMENT_MODE || 'onchain',
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   }
 }
@@ -74,10 +77,10 @@ export async function verifyStakeTransfer({ signature, walletAddress, expectedLa
     && instruction?.parsed?.type === 'transfer'
     && instruction.parsed.info?.destination === config.treasury
     && instruction.parsed.info?.source === walletAddress
-    && Number(instruction.parsed.info?.lamports) >= Number(expectedLamports)
+    && Number(instruction.parsed.info?.lamports) === Number(expectedLamports)
   ))
   if (!transfer) {
-    const error = new Error('The finalized transaction does not transfer the required stake to the escrow treasury.')
+    const error = new Error('The finalized transaction does not transfer the exact battle stake to the treasury.')
     error.status = 400
     throw error
   }

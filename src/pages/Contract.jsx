@@ -20,19 +20,42 @@ export default function Contract() {
   const isDevnet = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
   const isMainnet = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet'
   const onchainEnabled = isOnchainEscrowEnabled()
+  const treasuryMode = import.meta.env.VITE_BATTLE_SETTLEMENT_MODE === 'treasury'
+  const configurationEnabled = onchainEnabled || treasuryMode
   const [holderConfig, setHolderConfig] = useState(null)
   const [escrowStatus, setEscrowStatus] = useState(null)
   const [protocolAdmin, setProtocolAdmin] = useState('')
-  const [loading, setLoading] = useState(onchainEnabled)
+  const [loading, setLoading] = useState(configurationEnabled)
   const [saving, setSaving] = useState(false)
   const [mint, setMint] = useState('')
   const [minimums, setMinimums] = useState(DEFAULT_MINIMUMS)
   const [fees, setFees] = useState(DEFAULT_FEES)
 
   const refreshConfig = useCallback(async () => {
-    if (!onchainEnabled) return
+    if (!configurationEnabled) return
     setLoading(true)
     try {
+      if (treasuryMode) {
+        const response = await fetch('/api/holder-fees')
+        const result = await response.json().catch(() => ({}))
+        if (!response.ok) throw new Error(result.error || 'Unable to read the treasury configuration.')
+        const nextConfig = {
+          initialized: true,
+          holderMint: result.holderMint || EMPTY_PUBLIC_KEY,
+          decimals: result.holderMintDecimals || 0,
+          tierMinimums: result.tierMinimums || DEFAULT_MINIMUMS,
+          feeBps: result.feeBps || DEFAULT_FEES.map(Number),
+        }
+        setEscrowStatus({ configured: true, mode: 'treasury' })
+        setHolderConfig(nextConfig)
+        setProtocolAdmin(result.adminWallet || '')
+        if (result.holderMint) {
+          setMint(result.holderMint)
+          setMinimums(nextConfig.tierMinimums.map((minimum) => displayTokenAmount(minimum, nextConfig.decimals)))
+          setFees(nextConfig.feeBps.map(String))
+        }
+        return
+      }
       const [statusResponse, adminResponse] = await Promise.all([
         getOnchainStatus(),
         fetch('/api/holder-fees').then((response) => response.ok ? response.json() : { adminWallet: null }),
@@ -53,7 +76,7 @@ export default function Contract() {
     } finally {
       setLoading(false)
     }
-  }, [onchainEnabled])
+  }, [configurationEnabled, treasuryMode])
 
   useEffect(() => { void refreshConfig() }, [refreshConfig])
 
@@ -115,12 +138,12 @@ export default function Contract() {
         return Number(value)
       })
       await saveWithProtocolAuthority({
-        action: 'set',
+        ...(treasuryMode ? {} : { action: 'set' }),
         holderMint: mint,
         tierMinimums: tierMinimums.map(String),
         feeBps,
       })
-      notify('success', 'Holder Fee Schedule Saved', 'New battles will verify this mint balance on-chain and lock in the matching rate.')
+      notify('success', 'Holder Fee Schedule Saved', 'New battles verify this mint balance and lock the matching rate when created.')
       await refreshConfig()
     } catch (error) {
       notify('error', 'Configuration Not Saved', error instanceof Error ? error.message : 'The holder fee schedule could not be saved.')
@@ -138,17 +161,21 @@ export default function Contract() {
 
       <div className="contract-container">
         <div className="contract-card animate-in">
-          <div className="contract-title">On-chain contract</div>
+          <div className="contract-title">{treasuryMode ? 'Settlement treasury' : 'On-chain contract'}</div>
           <div className="status-line status-line-neutral">
             <span aria-hidden="true">i</span>
             {loading
               ? 'Checking the on-chain escrow configuration.'
+              : treasuryMode
+                ? 'Mainnet Privy treasury is configured for automatic settlements.'
               : escrowStatus?.configured
                 ? `${isMainnet ? 'Mainnet' : 'Devnet'} escrow program is configured and ready.`
                 : `${isMainnet ? 'Mainnet' : 'Devnet'} escrow deployment is not ready yet.`}
           </div>
           <p className="contract-copy">
-            {escrowStatus?.configured && isDevnet
+            {treasuryMode
+              ? 'Both player deposits are verified on Solana Mainnet and held by a dedicated Privy treasury. After the battle ends, one automated transaction pays the winner and the locked platform fee.'
+              : escrowStatus?.configured && isDevnet
               ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
               : escrowStatus?.configured && isMainnet
                 ? 'Both player deposits are held by the Token Battle escrow program on Solana Mainnet. The oracle settles the battle on-chain after it ends, sending the locked fee and remaining pot in the same transaction.'
@@ -158,7 +185,7 @@ export default function Contract() {
 
         <div className="contract-card animate-in stagger-2">
           <div className="contract-title">Holder fee schedule</div>
-          <p className="contract-copy">The rate is chosen from the creator’s verified SPL-token balance when the battle is created, then stored in that battle’s escrow account. A later balance or schedule change cannot alter it.</p>
+          <p className="contract-copy">The rate is chosen from the creator’s verified SPL-token balance when the battle is created and stored with the battle. A later balance or schedule change cannot alter it.</p>
           <div className="holder-schedule" aria-busy={loading}>
             {schedule.map((tier) => (
               <div className="holder-tier" key={tier.label}>
@@ -174,10 +201,10 @@ export default function Contract() {
           )}
         </div>
 
-        {onchainEnabled && isAdmin && (
+        {configurationEnabled && isAdmin && (
           <div className="contract-card animate-in stagger-3">
             <div className="contract-title">Admin: configure holder token</div>
-            {!holderConfig?.initialized ? (
+            {!holderConfig?.initialized && !treasuryMode ? (
               <>
                 <p className="contract-copy">Create the dedicated on-chain configuration account once. This does not set a token CA and does not change any existing battle.</p>
                 <button className="holder-admin-button" type="button" onClick={initialize} disabled={saving}>

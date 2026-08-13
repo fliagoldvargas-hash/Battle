@@ -6,6 +6,7 @@ import { settleOnchainBattles } from '../../server/devnetOracle.js'
 const send = (response, status, body) => response.status(status).json(body)
 const battleNetwork = () => process.env.BATTLE_NETWORK || process.env.VITE_BATTLE_NETWORK || null
 const isOnchainDeployment = () => ['devnet', 'mainnet'].includes(battleNetwork())
+const isTreasuryDeployment = () => process.env.BATTLE_SETTLEMENT_MODE === 'treasury'
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' })
@@ -13,6 +14,11 @@ export default async function handler(request, response) {
   try {
     await assertCronRequest(request)
     const supabase = createServerSupabase()
+    if (isTreasuryDeployment()) {
+      const processed = await processActiveBattles(supabase, 25, battleNetwork() || 'mainnet')
+      const settlements = await settleFinishedBattles(supabase, 1, battleNetwork() || 'mainnet')
+      return send(response, 200, { processed: processed.length, results: processed, settled: settlements.length, settlements })
+    }
     if (isOnchainDeployment()) {
       if (!process.env.ESCROW_PROGRAM_ID || !process.env.ORACLE_SETTLEMENT_AUTHORITY_SECRET) {
         return send(response, 503, { error: 'The on-chain settlement service is not configured.' })

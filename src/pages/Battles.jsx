@@ -5,7 +5,7 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle, recoverOnchainBattles, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
+import { confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, getOnchainStatus, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
@@ -15,6 +15,7 @@ const REFUND_DELAY_SECONDS = 86_400
 const TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
 const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
 const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
+const TREASURY_MODE = import.meta.env.VITE_BATTLE_SETTLEMENT_MODE === 'treasury'
 
 function actionErrorMessage(error, fallback) {
   if (error instanceof Error && error.message) return error.message
@@ -37,7 +38,7 @@ export default function Battles() {
   const [joinTokenAddress, setJoinTokenAddress] = useState('')
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
-  const availableDurations = isOnchainEscrowEnabled() ? [TEST_DURATION, ...DURATIONS] : DURATIONS
+  const availableDurations = (isOnchainEscrowEnabled() || TREASURY_MODE) ? [TEST_DURATION, ...DURATIONS] : DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const [holderFeeQuote, setHolderFeeQuote] = useState(null)
@@ -103,11 +104,14 @@ export default function Battles() {
 
   useEffect(() => {
     let cancelled = false
-    if (!wallet.connected || !isOnchainEscrow) {
+    if (!wallet.connected || (!isOnchainEscrow && !TREASURY_MODE)) {
       setHolderFeeQuote(null)
       return undefined
     }
-    void getHolderFeeQuote(wallet.address)
+    const quote = TREASURY_MODE
+      ? fetch(`/api/holder-fees?wallet=${encodeURIComponent(wallet.address)}`).then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to read the holder fee quote.')))
+      : getHolderFeeQuote(wallet.address)
+    void quote
       .then((quote) => {
         if (!cancelled) setHolderFeeQuote(quote)
       })
@@ -193,6 +197,10 @@ export default function Battles() {
       notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
       return
     }
+    if (TREASURY_MODE && !escrowConfigured) {
+      notify('error', 'Treasury Not Ready', 'The secure Mainnet treasury is not configured yet. No wallet transaction was requested.')
+      return
+    }
     const stake = Number(stakeAmount)
     const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
     if (!token || !Number.isFinite(stake) || stake < 0.1) {
@@ -221,10 +229,14 @@ export default function Battles() {
           }
         })()
         : await (async () => {
-          const depositSignature = escrowConfigured ? await depositStake(Math.round(stake * 1_000_000_000)) : null
-          return createBattle({
+          const prepared = await createBattle({
             getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
-            stakeSol: stake, durationSeconds: selectedDuration, depositSignature,
+            stakeSol: stake, durationSeconds: selectedDuration,
+          })
+          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports) : null
+          return confirmBattleDeposit({
+            getAccessToken, walletAddress: wallet.address, action: 'create', token: { mint: token.mint },
+            depositIntentId: prepared.depositIntentId, depositSignature,
           })
         })()
       setBattles(currentBattles => [newBattle, ...currentBattles])
@@ -265,6 +277,10 @@ export default function Battles() {
       notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
       return
     }
+    if (TREASURY_MODE && !escrowConfigured) {
+      notify('error', 'Treasury Not Ready', 'The secure Mainnet treasury is not configured yet. No wallet transaction was requested.')
+      return
+    }
     const token = joinToken ?? await loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
     if (!token) {
       notify('error', 'Token Required', 'Enter a valid Pump.fun contract address')
@@ -290,10 +306,11 @@ export default function Battles() {
         }
       } else {
         joinedBattle = await (async () => {
-          const depositSignature = escrowConfigured ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000)) : null
-          return joinBattle({
-            getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id,
-            token: { mint: token.mint }, depositSignature,
+          const prepared = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id })
+          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports) : null
+          return confirmBattleDeposit({
+            getAccessToken, walletAddress: wallet.address, action: 'join', token: { mint: token.mint },
+            depositIntentId: prepared.depositIntentId, depositSignature,
           })
         })()
       }
@@ -479,6 +496,7 @@ export default function Battles() {
             value={stakeAmount}
             onChange={e => setStakeAmount(e.target.value)}
             min="0.1"
+            max="10"
             step="0.1"
           />
         </div>
@@ -503,6 +521,11 @@ export default function Battles() {
             {holderFeeQuote?.initialized && holderFeeQuote.holderMint !== '11111111111111111111111111111111'
               ? `Your verified holder balance sets this battle's ${formatFeePercent(feeBps)} fee. The rate is locked on-chain when you create it.`
               : 'Standard fee: 1%. Holder discounts will activate after the protocol token CA is configured.'}
+          </p>
+        )}
+        {TREASURY_MODE && (
+          <p className="form-hint">
+            Your stake is sent to the protocol's dedicated Privy treasury. The verified {formatFeePercent(feeBps)} fee is locked when this battle is created; winner payment and the platform fee are sent automatically after settlement.
           </p>
         )}
 
@@ -583,18 +606,18 @@ export default function Battles() {
               </div>
             </div>
 
-            {viewBattle.onchainBattleAddress && (
+            {(viewBattle.onchainBattleAddress || viewBattle.treasuryAddress || viewBattle.creatorDepositSignature || viewBattle.opponentDepositSignature || viewBattle.settlementSignature) && (
               <section className="onchain-activity" aria-label="On-chain activity">
                 <div className="onchain-activity-heading">
                   <div>
                     <strong>On-chain activity</strong>
-                    <span>Verify every escrow movement directly on Solana Explorer.</span>
+                    <span>Verify every deposit and payment directly on Solana Explorer.</span>
                   </div>
                   <span className="onchain-network">{viewBattle.network === 'devnet' ? 'DEVNET' : 'MAINNET'}</span>
                 </div>
                 <div className="onchain-activity-list">
-                  <a href={solanaExplorerAddress(viewBattle.onchainBattleAddress, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
-                    <span className="onchain-activity-label">Battle escrow account</span>
+                  <a href={solanaExplorerAddress(viewBattle.onchainBattleAddress || viewBattle.treasuryAddress, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                    <span className="onchain-activity-label">{viewBattle.onchainBattleAddress ? 'Battle escrow account' : 'Settlement treasury'}</span>
                     <span>View account ↗</span>
                   </a>
                   {solanaExplorerTransaction(viewBattle.creatorDepositSignature, viewBattle.network) && (

@@ -1,17 +1,18 @@
 import { PrivyClient } from '@privy-io/node'
 import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from '../server/pumpfun.js'
-import { escrowConfiguration, verifyStakeTransfer } from '../server/escrow.js'
-import { processActiveBattles } from '../server/processBattles.js'
-import { settleFinishedBattles } from '../server/settlement.js'
+import { verifyStakeTransfer } from '../server/escrow.js'
+import { quoteFeeForWallet } from '../server/holderFees.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 const MIN_STAKE_LAMPORTS = 100_000_000
-const MAX_STAKE_LAMPORTS = 1_000_000_000_000
-const ALLOWED_DURATIONS = new Set([1800, 3600, 7200, 14400, 28800, 86400])
+const MAX_STAKE_LAMPORTS = 10_000_000_000
+const ALLOWED_DURATIONS = new Set([60, 1800, 3600, 7200, 14400, 28800, 86400])
+const DEPOSIT_INTENT_TTL_MS = 10 * 60 * 1000
 
 const send = (response, status, body) => response.status(status).json(body)
 const battleNetwork = () => process.env.BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
+const isTreasuryMode = () => process.env.BATTLE_SETTLEMENT_MODE === 'treasury'
 
 function publicBattle(battle) {
   if (!battle) return battle
@@ -87,7 +88,7 @@ function parseStakeLamports(stakeSol) {
   if (!Number.isSafeInteger(stakeLamports)
     || stakeLamports < MIN_STAKE_LAMPORTS
     || stakeLamports > MAX_STAKE_LAMPORTS) {
-    const error = new Error('Stake must be between 0.1 and 1,000 SOL.')
+    const error = new Error('Stake must be between 0.1 and 10 SOL.')
     error.status = 400
     throw error
   }
@@ -102,124 +103,141 @@ function assertCreatePayload(payload) {
   }
 }
 
-async function createBattle({ supabase, userId, walletAddress, payload }) {
-  assertCreatePayload(payload)
-  const token = await getPumpFunToken(payload.token.mint)
-  const stakeLamports = parseStakeLamports(payload.stakeSol)
-  const deposit = await verifyOptionalDeposit({
-    signature: payload.depositSignature,
-    walletAddress,
-    expectedLamports: stakeLamports,
-  })
-  await assertDepositIsUnused(supabase, deposit?.signature)
-
-  const { data, error } = await supabase
-    .from('battles')
-    .insert({
-      network: battleNetwork(),
-      creator_privy_user_id: userId,
-      creator_wallet: walletAddress,
-      token_a_mint: token.mint,
-      token_a_symbol: token.symbol,
-      token_a_market_cap: token.marketCap,
-      token_a_change_pct: 0,
-      stake_lamports: stakeLamports,
-      pot_lamports: stakeLamports,
-      duration_seconds: payload.durationSeconds,
-      ...(deposit ? {
-        escrow_state: 'awaiting_deposits',
-        escrow_account: deposit.treasury,
-        escrow_program_id: deposit.programId,
-        creator_deposit_signature: deposit.signature,
-      } : {}),
-    })
-    .select('*')
-    .single()
-
+async function assertPrepareRateLimit(supabase, walletAddress, action) {
+  const since = new Date(Date.now() - 60_000).toISOString()
+  const { count, error } = await supabase.from('battle_deposit_intents').select('id', { count: 'exact', head: true })
+    .eq('wallet_address', walletAddress).eq('action', action).gte('created_at', since)
   if (error) throw error
-  return data
+  if ((count ?? 0) >= 5) {
+    const limited = new Error('Too many deposit preparations. Wait one minute and try again.')
+    limited.status = 429
+    throw limited
+  }
 }
 
-async function joinBattle({ supabase, userId, walletAddress, payload }) {
-  if (!payload?.token || typeof payload.battleId !== 'string') {
-    const error = new Error('Invalid battle or token.')
-    error.status = 400
-    throw error
-  }
-  const token = await getPumpFunToken(payload.token.mint)
-
-  const { data: existingBattle, error: readError } = await supabase
-    .from('battles')
-    .select('*')
-    .eq('id', payload.battleId)
-    .eq('network', battleNetwork())
-    .maybeSingle()
-
-  if (readError) throw readError
-  if (!existingBattle) {
-    const error = new Error('Battle not found.')
-    error.status = 404
-    throw error
-  }
-  if (existingBattle.creator_privy_user_id === userId || existingBattle.creator_wallet === walletAddress) {
-    const error = new Error('You cannot join your own battle.')
-    error.status = 400
-    throw error
+async function createDepositIntent({ supabase, userId, walletAddress, payload }) {
+  const action = payload?.action
+  const expiresAt = new Date(Date.now() + DEPOSIT_INTENT_TTL_MS).toISOString()
+  if (action === 'prepare_create') {
+    await assertPrepareRateLimit(supabase, walletAddress, 'create')
+    assertCreatePayload(payload)
+    const token = await getPumpFunToken(payload.token.mint)
+    const stakeLamports = parseStakeLamports(payload.stakeSol)
+    const feeQuote = await quoteFeeForWallet(supabase, walletAddress)
+    const { data, error } = await supabase.from('battle_deposit_intents').insert({
+      network: battleNetwork(), action: 'create', privy_user_id: userId, wallet_address: walletAddress,
+      token_mint: token.mint, token_symbol: token.symbol, token_market_cap: token.marketCap,
+      stake_lamports: stakeLamports, duration_seconds: payload.durationSeconds, fee_bps: feeQuote.feeBps,
+      expires_at: expiresAt,
+    }).select('*').single()
+    if (error) throw error
+    return { intent: data, feeBps: feeQuote.feeBps }
   }
 
-  try {
-    const escrow = escrowConfiguration()
-    if (escrow.required && existingBattle.escrow_state !== 'awaiting_deposits') {
-      const error = new Error('This battle was created before escrow was enabled and cannot accept deposits.')
+  if (action === 'prepare_join') {
+    await assertPrepareRateLimit(supabase, walletAddress, 'join')
+    if (typeof payload?.battleId !== 'string') {
+      const error = new Error('Invalid battle.')
+      error.status = 400
+      throw error
+    }
+    const { data: battle, error: battleError } = await supabase.from('battles').select('*')
+      .eq('id', payload.battleId).eq('network', battleNetwork()).eq('status', 'waiting')
+      .eq('escrow_state', 'awaiting_deposits').is('opponent_wallet', null).maybeSingle()
+    if (battleError) throw battleError
+    if (!battle) {
+      const error = new Error('This battle is no longer available to join.')
       error.status = 409
       throw error
     }
-  } catch (error) {
-    if (error.status) throw error
-    if (process.env.ESCROW_REQUIRED === 'true') throw error
+    if (battle.creator_privy_user_id === userId || battle.creator_wallet === walletAddress) {
+      const error = new Error('You cannot join your own battle.')
+      error.status = 400
+      throw error
+    }
+    const { data, error } = await supabase.from('battle_deposit_intents').insert({
+      network: battleNetwork(), action: 'join', battle_id: battle.id, privy_user_id: userId,
+      wallet_address: walletAddress, stake_lamports: battle.stake_lamports, expires_at: expiresAt,
+    }).select('*').single()
+    if (error) throw error
+    return { intent: data, feeBps: Number(battle.fee_bps) }
   }
 
-  const startsAt = new Date()
-  const endsAt = new Date(startsAt.getTime() + existingBattle.duration_seconds * 1000)
-  const deposit = await verifyOptionalDeposit({
-    signature: payload.depositSignature,
-    walletAddress,
-    expectedLamports: Number(existingBattle.stake_lamports),
-  })
-  await assertDepositIsUnused(supabase, deposit?.signature)
-  const { data, error } = await supabase
-    .from('battles')
-    .update({
-      status: 'active',
-      opponent_privy_user_id: userId,
-      opponent_wallet: walletAddress,
-      token_b_mint: token.mint,
-      token_b_symbol: token.symbol,
-      token_b_market_cap: token.marketCap,
-      token_b_change_pct: 0,
-      pot_lamports: Number(existingBattle.stake_lamports) * 2,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAt.toISOString(),
-      updated_at: startsAt.toISOString(),
-      ...(deposit ? {
-        escrow_state: 'funded',
-        escrow_account: deposit.treasury,
-        escrow_program_id: deposit.programId,
-        opponent_deposit_signature: deposit.signature,
-      } : {}),
-    })
-    .eq('id', existingBattle.id)
-    .eq('status', 'waiting')
-    .is('opponent_wallet', null)
-    .select('*')
-    .maybeSingle()
+  const error = new Error('Unsupported deposit intent.')
+  error.status = 400
+  throw error
+}
 
+async function loadDepositIntent(supabase, userId, walletAddress, intentId, action) {
+  if (typeof intentId !== 'string') {
+    const error = new Error('Prepare the treasury deposit before signing it.')
+    error.status = 400
+    throw error
+  }
+  const { data: intent, error } = await supabase.from('battle_deposit_intents').select('*')
+    .eq('id', intentId).eq('network', battleNetwork()).eq('action', action)
+    .eq('privy_user_id', userId).eq('wallet_address', walletAddress).maybeSingle()
+  if (error) throw error
+  if (!intent || new Date(intent.expires_at).getTime() < Date.now()) {
+    const expired = new Error('This deposit request expired. Prepare a new one before sending SOL.')
+    expired.status = 409
+    throw expired
+  }
+  return intent
+}
+
+async function confirmCreateDeposit({ supabase, userId, walletAddress, payload }) {
+  const intent = await loadDepositIntent(supabase, userId, walletAddress, payload?.depositIntentId, 'create')
+  if (intent.deposit_signature) {
+    const { data: existing } = await supabase.from('battles').select('*').eq('creator_deposit_signature', intent.deposit_signature).maybeSingle()
+    if (existing) return existing
+  }
+  const deposit = await verifyStakeTransfer({ signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports) })
+  await assertDepositIsUnused(supabase, deposit.signature)
+  const { data, error } = await supabase.from('battles').insert({
+    network: battleNetwork(), creator_privy_user_id: userId, creator_wallet: walletAddress,
+    token_a_mint: intent.token_mint, token_a_symbol: intent.token_symbol, token_a_market_cap: intent.token_market_cap,
+    token_a_change_pct: 0, stake_lamports: intent.stake_lamports, pot_lamports: intent.stake_lamports,
+    duration_seconds: intent.duration_seconds, fee_bps: intent.fee_bps, escrow_state: 'awaiting_deposits',
+    escrow_account: deposit.treasury, escrow_program_id: deposit.programId, creator_deposit_signature: deposit.signature,
+  }).select('*').single()
+  if (error) throw error
+  await supabase.from('battle_deposit_intents').update({ deposit_signature: deposit.signature, consumed_at: new Date().toISOString() }).eq('id', intent.id)
+  return data
+}
+
+async function confirmJoinDeposit({ supabase, userId, walletAddress, payload }) {
+  const intent = await loadDepositIntent(supabase, userId, walletAddress, payload?.depositIntentId, 'join')
+  if (intent.deposit_signature) {
+    const { data: existing } = await supabase.from('battles').select('*').eq('opponent_deposit_signature', intent.deposit_signature).maybeSingle()
+    if (existing) return existing
+  }
+  const token = await getPumpFunToken(payload?.token?.mint)
+  const { data: battle, error: battleError } = await supabase.from('battles').select('*').eq('id', intent.battle_id).maybeSingle()
+  if (battleError) throw battleError
+  if (!battle || battle.status !== 'waiting' || battle.escrow_state !== 'awaiting_deposits' || battle.opponent_wallet) {
+    const unavailable = new Error('This battle is no longer available to join. No second transfer was requested.')
+    unavailable.status = 409
+    throw unavailable
+  }
+  const deposit = await verifyStakeTransfer({ signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports) })
+  await assertDepositIsUnused(supabase, deposit.signature)
+  const now = new Date()
+  const { data, error } = await supabase.from('battles').update({
+    status: 'active', opponent_privy_user_id: userId, opponent_wallet: walletAddress,
+    token_b_mint: token.mint, token_b_symbol: token.symbol, token_b_market_cap: token.marketCap, token_b_change_pct: 0,
+    pot_lamports: Number(battle.stake_lamports) * 2, starts_at: now.toISOString(),
+    ends_at: new Date(now.getTime() + battle.duration_seconds * 1000).toISOString(), updated_at: now.toISOString(),
+    escrow_state: 'funded', escrow_account: deposit.treasury, escrow_program_id: deposit.programId,
+    opponent_deposit_signature: deposit.signature,
+  }).eq('id', battle.id).eq('status', 'waiting').eq('escrow_state', 'awaiting_deposits').is('opponent_wallet', null).select('*').maybeSingle()
   if (error) throw error
   if (!data) {
-    const conflict = new Error('This battle was just joined by someone else.')
+    const conflict = new Error('This battle was just joined by someone else. Your deposit remains verifiable for review.')
     conflict.status = 409
     throw conflict
   }
+  await supabase.from('battle_deposit_intents').update({ deposit_signature: deposit.signature, consumed_at: now.toISOString() }).eq('id', intent.id)
   return data
 }
 
@@ -238,42 +256,15 @@ async function assertDepositIsUnused(supabase, signature) {
   }
 }
 
-async function verifyOptionalDeposit({ signature, walletAddress, expectedLamports }) {
-  const hasSignature = typeof signature === 'string' && signature.length > 0
-  let config
-  try {
-    config = escrowConfiguration()
-  } catch (error) {
-    if (hasSignature || process.env.ESCROW_REQUIRED === 'true') throw error
-    return null
-  }
-  if (!hasSignature) {
-    if (config.required) {
-      const error = new Error('Deposit the stake in escrow before creating or joining this battle.')
-      error.status = 400
-      throw error
-    }
-    return null
-  }
-  return verifyStakeTransfer({ signature, walletAddress, expectedLamports })
-}
-
 export default async function handler(request, response) {
   if (request.method === 'GET') {
     try {
       const { supabase } = createServerClients()
       const network = battleNetwork()
-      // On-chain escrow battles are settled exclusively by the oracle path.
-      // Never run the legacy treasury settlement path on either Solana network.
-      const processed = ['devnet', 'mainnet'].includes(network) ? [] : await processActiveBattles(supabase, 25, network)
-      let settlements = []
-      if (!['devnet', 'mainnet'].includes(network)) {
-        try {
-          settlements = await settleFinishedBattles(supabase)
-        } catch (settlementError) {
-          if (settlementError.code !== 'SETTLEMENT_NOT_CONFIGURED') throw settlementError
-        }
-      }
+      // A public read must never advance a battle or send funds. The authenticated
+      // scheduler is the only path allowed to settle a treasury battle.
+      const processed = []
+      const settlements = []
       const { data: battles, error } = await supabase
         .from('battles')
         .select('*')
@@ -294,18 +285,28 @@ export default async function handler(request, response) {
   }
 
   try {
-    if (['devnet', 'mainnet'].includes(battleNetwork())) {
-      return send(response, 409, { error: 'Use the on-chain escrow endpoint for this deployment.' })
+    if (!isTreasuryMode()) {
+      return send(response, 409, { error: 'This deployment is not configured for the treasury battle flow.' })
     }
     const { privy, supabase } = createServerClients()
     const identity = await authenticateRequest(request, privy)
     const walletAddress = verifiedSolanaWallet(identity.user, request.body?.walletAddress)
 
+    if (request.body?.action === 'prepare_create' || request.body?.action === 'prepare_join') {
+      const prepared = await createDepositIntent({ supabase, userId: identity.userId, walletAddress, payload: request.body })
+      return send(response, 200, {
+        depositIntentId: prepared.intent.id,
+        stakeLamports: Number(prepared.intent.stake_lamports),
+        feeBps: prepared.feeBps,
+        expiresAt: prepared.intent.expires_at,
+      })
+    }
+
     let battle
-    if (request.body?.action === 'create') {
-      battle = await createBattle({ supabase, userId: identity.userId, walletAddress, payload: request.body })
-    } else if (request.body?.action === 'join') {
-      battle = await joinBattle({ supabase, userId: identity.userId, walletAddress, payload: request.body })
+    if (request.body?.action === 'confirm_create') {
+      battle = await confirmCreateDeposit({ supabase, userId: identity.userId, walletAddress, payload: request.body })
+    } else if (request.body?.action === 'confirm_join') {
+      battle = await confirmJoinDeposit({ supabase, userId: identity.userId, walletAddress, payload: request.body })
     } else {
       return send(response, 400, { error: 'Unsupported battle action.' })
     }

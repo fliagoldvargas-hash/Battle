@@ -41,6 +41,7 @@ export const mapBattle = (battle) => ({
   onchainBattleId: battle.onchain_battle_id,
   onchainBattleAddress: battle.onchain_battle_address,
   vaultAddress: battle.vault_address,
+  treasuryAddress: battle.escrow_account,
   creatorDepositSignature: battle.creator_deposit_signature,
   opponentDepositSignature: battle.opponent_deposit_signature,
   settlementSignature: battle.settlement_signature,

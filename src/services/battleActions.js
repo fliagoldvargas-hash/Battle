@@ -27,7 +27,7 @@ async function postBattleAction({ getAccessToken, walletAddress, body }) {
 
   const result = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(result.error || 'Unable to update the battle.')
-  return mapBattle(result.battle)
+  return result
 }
 
 async function postOnchainEscrowAction({ getAccessToken, walletAddress, body }) {
@@ -79,11 +79,10 @@ export function createBattle(input) {
     getAccessToken: input.getAccessToken,
     walletAddress: input.walletAddress,
     body: {
-      action: 'create',
+      action: 'prepare_create',
       token: input.token,
       stakeSol: input.stakeSol,
       durationSeconds: input.durationSeconds,
-      depositSignature: input.depositSignature,
     },
   })
 }
@@ -93,10 +92,22 @@ export function joinBattle(input) {
     getAccessToken: input.getAccessToken,
     walletAddress: input.walletAddress,
     body: {
-      action: 'join',
+      action: 'prepare_join',
       battleId: input.battleId,
-      token: input.token,
-      depositSignature: input.depositSignature,
     },
   })
+}
+
+export async function confirmBattleDeposit(input) {
+  const result = await postBattleAction({
+    getAccessToken: input.getAccessToken,
+    walletAddress: input.walletAddress,
+    body: {
+      action: input.action === 'join' ? 'confirm_join' : 'confirm_create',
+      depositIntentId: input.depositIntentId,
+      depositSignature: input.depositSignature,
+      token: input.token,
+    },
+  })
+  return mapBattle(result.battle)
 }
