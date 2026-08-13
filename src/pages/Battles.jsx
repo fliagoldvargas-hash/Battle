@@ -6,7 +6,7 @@ import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
 import { createBattle, joinBattle, recoverOnchainBattles, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
-import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
+import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, getOnchainStatus, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
 import './Battles.css'
@@ -41,8 +41,22 @@ export default function Battles() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const [holderFeeQuote, setHolderFeeQuote] = useState(null)
+  const [onchainStatus, setOnchainStatus] = useState(null)
   const recoveredWallet = useRef('')
-  const isOnchainEscrow = isOnchainEscrowEnabled()
+  const escrowConfiguredForDeployment = isOnchainEscrowEnabled()
+  const isOnchainEscrow = escrowConfiguredForDeployment && onchainStatus?.configured === true
+
+  useEffect(() => {
+    if (!escrowConfiguredForDeployment) return undefined
+    let cancelled = false
+    void getOnchainStatus()
+      .then((status) => { if (!cancelled) setOnchainStatus(status) })
+      .catch((error) => {
+        console.warn('Unable to read on-chain escrow status', error)
+        if (!cancelled) setOnchainStatus({ configured: false })
+      })
+    return () => { cancelled = true }
+  }, [escrowConfiguredForDeployment])
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -175,6 +189,10 @@ export default function Battles() {
       notify('error', 'Wallet Required', 'Please connect your wallet first')
       return
     }
+    if (escrowConfiguredForDeployment && !isOnchainEscrow) {
+      notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
+      return
+    }
     const stake = Number(stakeAmount)
     const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
     if (!token || !Number.isFinite(stake) || stake < 0.1) {
@@ -243,6 +261,10 @@ export default function Battles() {
       notify('error', 'Wallet Required', 'Please connect your wallet before joining a battle')
       return
     }
+    if (escrowConfiguredForDeployment && !isOnchainEscrow) {
+      notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
+      return
+    }
     const token = joinToken ?? await loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
     if (!token) {
       notify('error', 'Token Required', 'Enter a valid Pump.fun contract address')
@@ -286,7 +308,7 @@ export default function Battles() {
   }
 
   const handleCancel = async () => {
-    if (!viewBattle || !isOnchainEscrowEnabled()) return
+    if (!viewBattle || !isOnchainEscrow) return
     setIsSubmitting(true)
     try {
       const onchain = await cancelOnchainBattle({
@@ -308,7 +330,7 @@ export default function Battles() {
   }
 
   const handleRefund = async () => {
-    if (!viewBattle || !isOnchainEscrowEnabled()) return
+    if (!viewBattle || !isOnchainEscrow) return
     setIsSubmitting(true)
     try {
       const onchain = await refundExpiredOnchainBattle({
@@ -347,6 +369,12 @@ export default function Battles() {
       <div className="page-header">
         <h1 className="page-title">⚔ Battles</h1>
         <p className="page-subtitle">Browse open battles or create your own challenge</p>
+        {escrowConfiguredForDeployment && !isOnchainEscrow && (
+          <div className="devnet-notice" role="status">
+            <strong>ESCROW NOT READY</strong>
+            <span>The {NETWORK_LABEL} program has not been initialized. Creating and joining battles are disabled until the on-chain setup is verified.</span>
+          </div>
+        )}
         {isOnchainEscrow && (
           <div className="devnet-notice" role="status">
             <strong>{NETWORK === 'devnet' ? 'DEVNET TEST MODE' : 'MAINNET ESCROW'}</strong>
@@ -376,7 +404,7 @@ export default function Battles() {
             value={search}
             onChange={e => setSearch(e.target.value)}
           />
-          <button className="create-battle-btn" onClick={() => setCreateOpen(true)}>
+          <button className="create-battle-btn" onClick={() => setCreateOpen(true)} disabled={escrowConfiguredForDeployment && !isOnchainEscrow}>
             + Create Battle
           </button>
         </div>
@@ -495,8 +523,8 @@ export default function Battles() {
             {(() => {
               const isCreator = wallet.connected && viewBattle.creatorAddress === wallet.address
               const isParticipant = isCreator || (wallet.connected && viewBattle.opponentAddress === wallet.address)
-              const canCancel = isOnchainEscrowEnabled() && viewBattle.status === 'waiting' && isCreator
-              const canRefund = isOnchainEscrowEnabled() && viewBattle.status === 'active' && isParticipant
+              const canCancel = isOnchainEscrow && viewBattle.status === 'waiting' && isCreator
+              const canRefund = isOnchainEscrow && viewBattle.status === 'active' && isParticipant
                 && viewBattle.endTime && currentTime >= viewBattle.endTime + REFUND_DELAY_SECONDS
               const refundAt = viewBattle.endTime ? new Date((viewBattle.endTime + REFUND_DELAY_SECONDS) * 1000).toLocaleString() : null
               return (

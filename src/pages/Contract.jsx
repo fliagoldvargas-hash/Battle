@@ -4,7 +4,7 @@ import { notify } from '../components/notificationService'
 import {
   displayTokenAmount,
   formatFeePercent,
-  getHolderFeeConfig,
+  getOnchainStatus,
   holderMintDecimals,
   isOnchainEscrowEnabled,
   rawTokenAmount,
@@ -21,6 +21,7 @@ export default function Contract() {
   const isMainnet = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet'
   const onchainEnabled = isOnchainEscrowEnabled()
   const [holderConfig, setHolderConfig] = useState(null)
+  const [escrowStatus, setEscrowStatus] = useState(null)
   const [protocolAdmin, setProtocolAdmin] = useState('')
   const [loading, setLoading] = useState(onchainEnabled)
   const [saving, setSaving] = useState(false)
@@ -32,20 +33,23 @@ export default function Contract() {
     if (!onchainEnabled) return
     setLoading(true)
     try {
-      const [nextConfig, adminResponse] = await Promise.all([
-        getHolderFeeConfig(),
+      const [statusResponse, adminResponse] = await Promise.all([
+        getOnchainStatus(),
         fetch('/api/holder-fees').then((response) => response.ok ? response.json() : { adminWallet: null }),
       ])
+      setEscrowStatus(statusResponse)
+      const nextConfig = statusResponse.holderConfig
       setHolderConfig(nextConfig)
       setProtocolAdmin(adminResponse.adminWallet || '')
-      if (nextConfig.initialized && nextConfig.holderMint !== EMPTY_PUBLIC_KEY) {
+      if (nextConfig?.initialized && nextConfig.holderMint !== EMPTY_PUBLIC_KEY) {
         setMint(nextConfig.holderMint)
         setMinimums(nextConfig.tierMinimums.map((minimum) => displayTokenAmount(minimum, nextConfig.decimals)))
         setFees(nextConfig.feeBps.map(String))
       }
     } catch (error) {
       console.warn('Unable to read holder fee configuration', error)
-      notify('error', 'Protocol Configuration Unavailable', 'The on-chain holder fee settings could not be loaded.')
+      setEscrowStatus({ configured: false, error: error instanceof Error ? error.message : 'The on-chain escrow status could not be loaded.' })
+      setHolderConfig(null)
     } finally {
       setLoading(false)
     }
@@ -137,14 +141,18 @@ export default function Contract() {
           <div className="contract-title">On-chain contract</div>
           <div className="status-line status-line-neutral">
             <span aria-hidden="true">i</span>
-            {isDevnet ? 'Devnet escrow program deployed for testing.' : isMainnet ? 'Mainnet escrow program deployed for real-fund settlement.' : 'Contract status is not available in this deployment.'}
+            {loading
+              ? 'Checking the on-chain escrow configuration.'
+              : escrowStatus?.configured
+                ? `${isMainnet ? 'Mainnet' : 'Devnet'} escrow program is configured and ready.`
+                : `${isMainnet ? 'Mainnet' : 'Devnet'} escrow deployment is not ready yet.`}
           </div>
           <p className="contract-copy">
-            {isDevnet
+            {escrowStatus?.configured && isDevnet
               ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
-              : isMainnet
+              : escrowStatus?.configured && isMainnet
                 ? 'Both player deposits are held by the Token Battle escrow program on Solana Mainnet. The oracle settles the battle on-chain after it ends, sending the locked fee and remaining pot in the same transaction.'
-                : 'This screen does not make claims about an escrow deployment or real-fund settlement.'}
+                : 'No wallet deposit can be made from this deployment until its program and on-chain configuration have been initialized.'}
           </p>
         </div>
 

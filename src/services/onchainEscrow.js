@@ -193,6 +193,13 @@ export async function getHolderFeeConfig() {
   return account ? decodeHolderConfig(account) : defaultHolderConfig()
 }
 
+export async function getOnchainStatus() {
+  const response = await fetch('/api/onchain-status')
+  const result = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(result.error || 'The on-chain escrow status is unavailable.')
+  return result
+}
+
 export async function getEscrowAdmin() {
   const { config } = deriveAccounts(new Uint8Array(16))
   const connection = new Connection(RPC_URL, 'confirmed')
