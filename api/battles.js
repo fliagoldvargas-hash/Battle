@@ -13,6 +13,12 @@ const ALLOWED_DURATIONS = new Set([1800, 3600, 7200, 14400, 28800, 86400])
 const send = (response, status, body) => response.status(status).json(body)
 const battleNetwork = () => process.env.BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
 
+function publicBattle(battle) {
+  if (!battle) return battle
+  const { creator_privy_user_id: _creatorPrivyUserId, opponent_privy_user_id: _opponentPrivyUserId, ...publicFields } = battle
+  return publicFields
+}
+
 function readBearerToken(request) {
   const authorization = request.headers.authorization
   if (!authorization?.startsWith('Bearer ')) return null
@@ -276,7 +282,7 @@ export default async function handler(request, response) {
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) throw error
-      return send(response, 200, { battles, processed, settlements })
+      return send(response, 200, { battles: battles.map(publicBattle), processed, settlements })
     } catch (error) {
       console.error('Battle read API error', error)
       return send(response, 500, { error: 'Unable to load battles right now.' })
@@ -304,7 +310,7 @@ export default async function handler(request, response) {
       return send(response, 400, { error: 'Unsupported battle action.' })
     }
 
-    return send(response, 200, { battle })
+    return send(response, 200, { battle: publicBattle(battle) })
   } catch (error) {
     const status = error.status ?? 500
     if (status >= 500) console.error('Battle API error', error)

@@ -10,6 +10,12 @@ const SIGNATURE = /^[1-9A-HJ-NP-Za-km-z]{80,100}$/
 
 const send = (response, status, body) => response.status(status).json(body)
 
+function publicBattle(battle) {
+  if (!battle) return battle
+  const { creator_privy_user_id: _creatorPrivyUserId, opponent_privy_user_id: _opponentPrivyUserId, ...publicFields } = battle
+  return publicFields
+}
+
 function env(name) {
   const value = process.env[name]
   if (!value) throw new Error(`Missing server environment variable: ${name}`)
@@ -230,7 +236,7 @@ export default async function handler(request, response) {
     const payload = request.body || {}
     if (payload.action === 'recover') {
       const battles = await recoverWaitingBattles({ supabase, identity })
-      return send(response, 200, { battles })
+      return send(response, 200, { battles: battles.map(publicBattle) })
     }
     if (payload.action === 'cancel' || payload.action === 'refund') {
       await verifiedClosedBattle({ ...payload, instructionName: payload.action === 'cancel' ? 'cancel_waiting' : 'refund_expired' })
@@ -248,7 +254,7 @@ export default async function handler(request, response) {
         status: 'cancelled', escrow_state: 'refunded', settlement_signature: payload.signature, updated_at: new Date().toISOString(),
       }).eq('id', existing.id).eq('status', payload.action === 'cancel' ? 'waiting' : 'active').select('*').single()
       if (error) throw error
-      return send(response, 200, { battle: data })
+      return send(response, 200, { battle: publicBattle(data) })
     }
     const chain = await verifiedBattle({ ...payload, instructionName: payload.action === 'create' ? 'create_battle' : 'join_battle' })
     if (payload.action === 'create') {
@@ -256,14 +262,14 @@ export default async function handler(request, response) {
       const data = await saveCreatedBattle({
         supabase, identity, chain, signature: payload.signature, battleAddress: payload.battleAddress, vaultAddress: payload.vaultAddress,
       })
-      return send(response, 200, { battle: data })
+      return send(response, 200, { battle: publicBattle(data) })
     }
     if (payload.action === 'join') {
       if (chain.status !== 1 || chain.opponent !== identity.wallet) throw Object.assign(new Error('Unexpected Devnet join state.'), { status: 409 })
       const data = await saveJoinedBattle({
         supabase, identity, chain, signature: payload.signature, battleAddress: payload.battleAddress,
       })
-      return send(response, 200, { battle: data })
+      return send(response, 200, { battle: publicBattle(data) })
     }
     return send(response, 400, { error: 'Unsupported Devnet escrow action.' })
   } catch (error) {
