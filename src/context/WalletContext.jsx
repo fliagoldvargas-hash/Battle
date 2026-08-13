@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
-import { useConnectWallet, useLinkWithSiws, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
+import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
 import { WalletContext } from './walletStore'
@@ -32,7 +32,6 @@ export function WalletProvider({ children }) {
   const { wallets, ready: walletsReady } = useWallets()
   const { signAndSendTransaction } = useSignAndSendTransaction()
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
-  const { linkWithSiws } = useLinkWithSiws()
   const authenticationInFlight = useRef(false)
   const connectionInFlight = useRef(false)
   const [isConnecting, setIsConnecting] = useState(false)
@@ -43,14 +42,19 @@ export function WalletProvider({ children }) {
   const [selectedWalletAddress, setSelectedWalletAddress] = useState('')
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
-    // Privy rejects a second SIWS login while the current session is active.
-    // This also prevents a reconnect click from showing a false auth error.
+    // Token Battle intentionally uses one wallet per session. Linking a second
+    // wallet can fail when it belongs to another Privy user, so switching
+    // wallets always starts a fresh SIWS login instead.
     const alreadyLinked = user?.linkedAccounts?.some((linkedAccount) => (
       linkedAccount.type === 'wallet' && linkedAccount.address === solanaWallet.address
     ))
     if ((authenticated && alreadyLinked) || authenticationInFlight.current) return
     authenticationInFlight.current = true
     try {
+      if (authenticated) {
+        await logout()
+        setSelectedWalletAddress('')
+      }
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
       // Privy returns a standard Solana wallet after it has finished connecting.
@@ -69,21 +73,8 @@ export function WalletProvider({ children }) {
         connectorType: solanaWallet.connectorType,
       }
 
-      // A connected wallet can be new even when Privy restored an existing
-      // session. In that case it must be linked, not used to log in again.
-      if (authenticated) {
-        await linkWithSiws(credentials)
-      } else {
-        try {
-          await loginWithSiws(credentials)
-        } catch (error) {
-          // Privy can restore a session while the wallet modal is open. The
-          // SIWS message is still valid; attach this wallet to that restored
-          // session instead of surfacing a false "already authenticated" error.
-          if (!/already authenticated/i.test(error instanceof Error ? error.message : String(error ?? ''))) throw error
-          await linkWithSiws(credentials)
-        }
-      }
+      await loginWithSiws(credentials)
+      setSelectedWalletAddress(solanaWallet.address)
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
       if (!isUserCancellation(error)) {
@@ -94,7 +85,7 @@ export function WalletProvider({ children }) {
       connectionInFlight.current = false
       setIsConnecting(false)
     }
-  }, [authenticated, generateSiwsMessage, linkWithSiws, loginWithSiws, user])
+  }, [authenticated, generateSiwsMessage, loginWithSiws, logout, user])
 
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet: connectedWallet }) => {
