@@ -27,6 +27,8 @@ export default function Contract() {
   const [protocolAdmin, setProtocolAdmin] = useState('')
   const [loading, setLoading] = useState(configurationEnabled)
   const [saving, setSaving] = useState(false)
+  const [provisioningTreasury, setProvisioningTreasury] = useState(false)
+  const [treasuryDetails, setTreasuryDetails] = useState(null)
   const [mint, setMint] = useState('')
   const [minimums, setMinimums] = useState(DEFAULT_MINIMUMS)
   const [fees, setFees] = useState(DEFAULT_FEES)
@@ -36,8 +38,12 @@ export default function Contract() {
     setLoading(true)
     try {
       if (treasuryMode) {
-        const response = await fetch('/api/holder-fees')
+        const [response, treasuryResponse] = await Promise.all([
+          fetch('/api/holder-fees'),
+          fetch('/api/escrow/bootstrap'),
+        ])
         const result = await response.json().catch(() => ({}))
+        const treasury = await treasuryResponse.json().catch(() => ({}))
         if (!response.ok) throw new Error(result.error || 'Unable to read the treasury configuration.')
         const nextConfig = {
           initialized: true,
@@ -46,7 +52,7 @@ export default function Contract() {
           tierMinimums: result.tierMinimums || DEFAULT_MINIMUMS,
           feeBps: result.feeBps || DEFAULT_FEES.map(Number),
         }
-        setEscrowStatus({ configured: true, mode: 'treasury' })
+        setEscrowStatus({ configured: Boolean(treasury.configured), mode: 'treasury' })
         setHolderConfig(nextConfig)
         setProtocolAdmin(result.adminWallet || '')
         if (result.holderMint) {
@@ -127,6 +133,27 @@ export default function Contract() {
     }
   }
 
+  const provisionTreasury = async () => {
+    setProvisioningTreasury(true)
+    try {
+      const accessToken = await getAccessToken()
+      if (!accessToken) throw new Error('Reconnect the protocol owner wallet before provisioning the treasury.')
+      const response = await fetch('/api/escrow/bootstrap', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress: wallet.address }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(result.error || 'Treasury provisioning was rejected.')
+      setTreasuryDetails(result)
+      notify('success', result.configured ? 'Treasury Found' : 'Treasury Created', 'The dedicated Privy Mainnet wallet is ready for server configuration.')
+    } catch (error) {
+      notify('error', 'Treasury Not Provisioned', error instanceof Error ? error.message : 'Unable to provision the Privy treasury.')
+    } finally {
+      setProvisioningTreasury(false)
+    }
+  }
+
   const saveSchedule = async (event) => {
     event.preventDefault()
     setSaving(true)
@@ -167,7 +194,9 @@ export default function Contract() {
             {loading
               ? 'Checking the on-chain escrow configuration.'
               : treasuryMode
-                ? 'Mainnet Privy treasury is configured for automatic settlements.'
+                ? escrowStatus?.configured
+                  ? 'Mainnet Privy treasury is configured for automatic settlements.'
+                  : 'Mainnet Privy treasury has not been provisioned yet.'
               : escrowStatus?.configured
                 ? `${isMainnet ? 'Mainnet' : 'Devnet'} escrow program is configured and ready.`
                 : `${isMainnet ? 'Mainnet' : 'Devnet'} escrow deployment is not ready yet.`}
@@ -203,7 +232,18 @@ export default function Contract() {
 
         {configurationEnabled && isAdmin && (
           <div className="contract-card animate-in stagger-3">
-            <div className="contract-title">Admin: configure holder token</div>
+            <div className="contract-title">Admin: treasury and holder token</div>
+            {treasuryMode && (
+              <>
+                <p className="contract-copy">Create the dedicated Privy Mainnet treasury once. Its owner is this Privy account; Vercel receives only a policy-limited signer, never a Solana private key.</p>
+                <button className="holder-admin-button" type="button" onClick={provisionTreasury} disabled={provisioningTreasury}>
+                  {provisioningTreasury ? 'PROVISIONING...' : 'PROVISION SECURE TREASURY'}
+                </button>
+                {treasuryDetails?.address && (
+                  <p className="contract-copy contract-copy-mono">Treasury: {treasuryDetails.address}<br />Wallet ID: {treasuryDetails.walletId}</p>
+                )}
+              </>
+            )}
             {!holderConfig?.initialized && !treasuryMode ? (
               <>
                 <p className="contract-copy">Create the dedicated on-chain configuration account once. This does not set a token CA and does not change any existing battle.</p>
