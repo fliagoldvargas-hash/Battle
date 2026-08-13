@@ -94,6 +94,14 @@ function deriveAccounts(id) {
   return { programId, config, holderConfig, battle, vault }
 }
 
+function walletTransactionError(error) {
+  const message = error instanceof Error
+    ? error.message
+    : error?.message ?? error?.error?.message ?? error?.reason
+  if (message && String(message).trim()) return String(message)
+  return 'The connected wallet did not complete the Devnet transaction. Approve the transaction in your wallet and try again.'
+}
+
 async function send({ wallet, signAndSendTransaction, instruction }) {
   try {
     const connection = new Connection(RPC_URL, 'confirmed')
@@ -110,7 +118,7 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
     throw new Error('Wallet did not return a Solana transaction signature.')
   } catch (error) {
     console.error('Devnet escrow transaction failed', error)
-    throw error
+    throw new Error(walletTransactionError(error))
   }
 }
 
@@ -218,8 +226,15 @@ export async function getHolderFeeQuote(walletAddress) {
 }
 
 export async function holderMintDecimals(mint) {
+  let publicKey
+  try {
+    publicKey = new PublicKey(String(mint).trim())
+  } catch {
+    throw new Error('Enter a valid Solana token CA.')
+  }
   const connection = new Connection(RPC_URL, 'confirmed')
-  const account = await connection.getAccountInfo(new PublicKey(mint), 'confirmed')
+  const account = await connection.getAccountInfo(publicKey, 'confirmed')
+  if (!account) throw new Error('This CA does not exist on Solana Devnet. Use the CA of a real Devnet SPL token mint.')
   const bytes = accountBytes(account)
   const owner = account?.owner?.toBase58()
   const supportedTokenPrograms = new Set(['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdYhQPLqP2K1gSN3JwzQfE6VTMZqcxAmVR2qj'])

@@ -14,6 +14,12 @@ import './Battles.css'
 const REFUND_DELAY_SECONDS = 86_400
 const DEVNET_TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
 
+function actionErrorMessage(error, fallback) {
+  if (error instanceof Error && error.message) return error.message
+  const message = error?.message ?? error?.error?.message ?? error?.reason
+  return message && String(message).trim() ? String(message) : fallback
+}
+
 export default function Battles() {
   const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
   const [battles, setBattles] = useState([])
@@ -208,7 +214,7 @@ export default function Battles() {
       setTokenAddress('')
       setStakeAmount('5')
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'The wallet could not create this battle.'
+      const message = actionErrorMessage(error, 'The wallet could not create this battle. Approve the wallet transaction and try again.')
       console.error('Battle creation failed', error)
       setCreateError(message)
       notify('error', 'Battle Not Created', message)

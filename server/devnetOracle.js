@@ -127,7 +127,7 @@ async function reconcilePendingSettlements({ supabase, connection, programId }) 
   const { data: pending, error } = await supabase.from('battles')
     .select('id,onchain_battle_address,settlement_signature,updated_at')
     .eq('network', 'devnet')
-    .eq('status', 'active')
+    .in('status', ['active', 'finished'])
     .like('settlement_signature', 'oracle-pending:%')
   if (error) throw error
 
@@ -176,7 +176,7 @@ export async function settleDevnetBattles(supabase, limit = 1) {
     .eq('network', 'devnet')
     .in('status', ['active', 'finished'])
     .in('escrow_state', ['funded', 'error'])
-    .or('settlement_signature.is.null,settlement_signature.like.pending:%,settlement_signature.like.oracle-pending:%')
+    .or('settlement_signature.is.null,settlement_signature.like.pending:%')
     .lte('ends_at', now)
     // With a public Devnet RPC, settle one battle at a time. Prioritizing the
     // newest finished battle gives users the shortest possible payout delay

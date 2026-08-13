@@ -50,7 +50,12 @@ function accounts(programId) {
 }
 
 function validateSchedule(input) {
-  const holderMint = new PublicKey(input?.holderMint)
+  let holderMint
+  try {
+    holderMint = new PublicKey(String(input?.holderMint || '').trim())
+  } catch {
+    throw Object.assign(new Error('Enter a valid Solana token CA.'), { status: 400 })
+  }
   const minimums = input?.tierMinimums?.map((value) => BigInt(value))
   const feeBps = input?.feeBps?.map((value) => Number(value))
   if (minimums?.length !== 4 || feeBps?.length !== 5 || minimums.some((value) => value <= 0n)) throw Object.assign(new Error('Provide four positive token-balance thresholds and five rates.'), { status: 400 })
