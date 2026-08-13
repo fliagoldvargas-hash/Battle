@@ -155,12 +155,31 @@ async function createDepositIntent({ supabase, userId, walletAddress, payload })
       error.status = 400
       throw error
     }
+    // Reserve the only opponent seat before the browser asks the user to transfer.
+    // A plain read followed by a transfer would let two players fund the same battle.
+    await supabase.from('battles').update({
+      join_reservation_token: null, join_reservation_wallet: null, join_reservation_expires_at: null,
+    }).eq('id', battle.id).lt('join_reservation_expires_at', new Date().toISOString())
+
     const { data, error } = await supabase.from('battle_deposit_intents').insert({
       network: battleNetwork(), action: 'join', battle_id: battle.id, privy_user_id: userId,
       wallet_address: walletAddress, stake_lamports: battle.stake_lamports, expires_at: expiresAt,
     }).select('*').single()
     if (error) throw error
-    return { intent: data, feeBps: Number(battle.fee_bps) }
+
+    const { data: reserved, error: reservationError } = await supabase.from('battles').update({
+      join_reservation_token: data.id,
+      join_reservation_wallet: walletAddress,
+      join_reservation_expires_at: expiresAt,
+    }).eq('id', battle.id).eq('status', 'waiting').eq('escrow_state', 'awaiting_deposits')
+      .is('opponent_wallet', null).is('join_reservation_token', null).select('*').maybeSingle()
+    if (reservationError) throw reservationError
+    if (!reserved) {
+      const unavailable = new Error('Another player is already preparing to join this battle. No transfer was requested.')
+      unavailable.status = 409
+      throw unavailable
+    }
+    return { intent: data, feeBps: Number(reserved.fee_bps) }
   }
 
   const error = new Error('Unsupported deposit intent.')
@@ -215,7 +234,8 @@ async function confirmJoinDeposit({ supabase, userId, walletAddress, payload }) 
   const token = await getPumpFunToken(payload?.token?.mint)
   const { data: battle, error: battleError } = await supabase.from('battles').select('*').eq('id', intent.battle_id).maybeSingle()
   if (battleError) throw battleError
-  if (!battle || battle.status !== 'waiting' || battle.escrow_state !== 'awaiting_deposits' || battle.opponent_wallet) {
+  if (!battle || battle.status !== 'waiting' || battle.escrow_state !== 'awaiting_deposits' || battle.opponent_wallet
+    || battle.join_reservation_token !== intent.id || battle.join_reservation_wallet !== walletAddress) {
     const unavailable = new Error('This battle is no longer available to join. No second transfer was requested.')
     unavailable.status = 409
     throw unavailable
@@ -230,7 +250,9 @@ async function confirmJoinDeposit({ supabase, userId, walletAddress, payload }) 
     ends_at: new Date(now.getTime() + battle.duration_seconds * 1000).toISOString(), updated_at: now.toISOString(),
     escrow_state: 'funded', escrow_account: deposit.treasury, escrow_program_id: deposit.programId,
     opponent_deposit_signature: deposit.signature,
-  }).eq('id', battle.id).eq('status', 'waiting').eq('escrow_state', 'awaiting_deposits').is('opponent_wallet', null).select('*').maybeSingle()
+    join_reservation_token: null, join_reservation_wallet: null, join_reservation_expires_at: null,
+  }).eq('id', battle.id).eq('status', 'waiting').eq('escrow_state', 'awaiting_deposits').is('opponent_wallet', null)
+    .eq('join_reservation_token', intent.id).eq('join_reservation_wallet', walletAddress).select('*').maybeSingle()
   if (error) throw error
   if (!data) {
     const conflict = new Error('This battle was just joined by someone else. Your deposit remains verifiable for review.')
