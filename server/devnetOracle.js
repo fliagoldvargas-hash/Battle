@@ -123,7 +123,7 @@ async function settleOnchain({ battle, winner, settlement, connection, programId
   return signature
 }
 
-async function reconcilePendingSettlements({ supabase, connection, programId }) {
+async function reconcilePendingSettlements({ supabase, connection }) {
   const { data: pending, error } = await supabase.from('battles')
     .select('id,onchain_battle_address,settlement_signature,updated_at')
     .eq('network', 'devnet')
@@ -169,7 +169,7 @@ async function reconcilePendingSettlements({ supabase, connection, programId }) 
 
 export async function settleDevnetBattles(supabase, limit = 1) {
   const { connection, programId, authority } = oracleConfig()
-  const awaitingConfirmation = await reconcilePendingSettlements({ supabase, connection, programId })
+  const awaitingConfirmation = await reconcilePendingSettlements({ supabase, connection })
   const now = new Date().toISOString()
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
