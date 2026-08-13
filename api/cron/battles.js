@@ -1,12 +1,11 @@
 import { assertCronRequest, createServerSupabase } from '../../server/serverSupabase.js'
 import { processActiveBattles } from '../../server/processBattles.js'
 import { settleFinishedBattles } from '../../server/settlement.js'
-import { settleDevnetBattles } from '../../server/devnetOracle.js'
+import { settleOnchainBattles } from '../../server/devnetOracle.js'
 
 const send = (response, status, body) => response.status(status).json(body)
-const isDevnetDeployment = () => (
-  process.env.BATTLE_NETWORK === 'devnet' || process.env.VITE_BATTLE_NETWORK === 'devnet'
-)
+const battleNetwork = () => process.env.BATTLE_NETWORK || process.env.VITE_BATTLE_NETWORK || null
+const isOnchainDeployment = () => ['devnet', 'mainnet'].includes(battleNetwork())
 
 export default async function handler(request, response) {
   if (request.method !== 'GET') return send(response, 405, { error: 'Method not allowed.' })
@@ -14,8 +13,11 @@ export default async function handler(request, response) {
   try {
     await assertCronRequest(request)
     const supabase = createServerSupabase()
-    if (isDevnetDeployment()) {
-      const settlements = await settleDevnetBattles(supabase)
+    if (isOnchainDeployment()) {
+      if (!process.env.ESCROW_PROGRAM_ID || !process.env.ORACLE_SETTLEMENT_AUTHORITY_SECRET) {
+        return send(response, 503, { error: 'The on-chain settlement service is not configured.' })
+      }
+      const settlements = await settleOnchainBattles(supabase)
       return send(response, 200, { processed: settlements.length, results: settlements, settled: settlements.length })
     }
     const results = await processActiveBattles(supabase)

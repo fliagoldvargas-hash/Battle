@@ -5,9 +5,12 @@ skip-lint = false
 [programs.devnet]
 token_battle_escrow = "8BbDmAQ6ZAuhKVZurkJdmnnrmg6X4QkAtQ8oFiKeX7Ff"
 
+[programs.mainnet]
+token_battle_escrow = "CJisngeZUAiZCJ9Ej8ctfSsupVa5E2penz3sjYQXoh7m"
+
 [provider]
-cluster = "Devnet"
-wallet = "~/.config/solana/token-battle-devnet.json"
+cluster = "Mainnet"
+wallet = "~/.config/solana/token-battle-mainnet/deployer.json"
 
 [scripts]
 test = "cargo test --manifest-path programs/token_battle_escrow/Cargo.toml"

@@ -5,14 +5,16 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle, recoverDevnetBattles, syncDevnetBattle, syncDevnetEscrowAction } from '../services/battleActions'
+import { createBattle, joinBattle, recoverOnchainBattles, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
 import './Battles.css'
 
 const REFUND_DELAY_SECONDS = 86_400
-const DEVNET_TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
+const TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
+const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
+const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
 
 function actionErrorMessage(error, fallback) {
   if (error instanceof Error && error.message) return error.message
@@ -35,12 +37,12 @@ export default function Battles() {
   const [joinTokenAddress, setJoinTokenAddress] = useState('')
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
-  const availableDurations = isOnchainEscrowEnabled() ? [DEVNET_TEST_DURATION, ...DURATIONS] : DURATIONS
+  const availableDurations = isOnchainEscrowEnabled() ? [TEST_DURATION, ...DURATIONS] : DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const [holderFeeQuote, setHolderFeeQuote] = useState(null)
   const recoveredWallet = useRef('')
-  const isDevnetEscrow = isOnchainEscrowEnabled()
+  const isOnchainEscrow = isOnchainEscrowEnabled()
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -72,22 +74,22 @@ export default function Battles() {
   useEffect(() => {
     if (!wallet.connected || !isOnchainEscrowEnabled() || recoveredWallet.current === wallet.address) return
     recoveredWallet.current = wallet.address
-    void recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
+    void recoverOnchainBattles({ getAccessToken, walletAddress: wallet.address })
       .then((recovered) => {
         if (recovered.length) {
-          notify('info', 'Devnet Battle Restored', 'Your confirmed escrow battle was restored.')
+          notify('info', 'Battle Restored', 'Your confirmed on-chain battle was restored.')
           return refreshBattles()
         }
         return undefined
       })
       .catch((error) => {
-        console.warn('Devnet battle recovery skipped', error)
+        console.warn('On-chain battle recovery skipped', error)
       })
   }, [getAccessToken, refreshBattles, wallet.address, wallet.connected])
 
   useEffect(() => {
     let cancelled = false
-    if (!wallet.connected || !isDevnetEscrow) {
+    if (!wallet.connected || !isOnchainEscrow) {
       setHolderFeeQuote(null)
       return undefined
     }
@@ -100,7 +102,7 @@ export default function Battles() {
         if (!cancelled) setHolderFeeQuote(null)
       })
     return () => { cancelled = true }
-  }, [isDevnetEscrow, wallet.address, wallet.connected])
+  }, [isOnchainEscrow, wallet.address, wallet.connected])
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]
@@ -144,13 +146,13 @@ export default function Battles() {
     }
   }
 
-  const recoverConfirmedDevnetBattle = async (battleAddress) => {
-    // The wallet can broadcast before every Devnet RPC replica has the new
+  const recoverConfirmedOnchainBattle = async (battleAddress) => {
+    // The wallet can broadcast before every RPC replica has the new
     // account state. Keep synchronizing a confirmed action instead of showing
     // a false error to the user.
     for (const delay of [0, 1_500, 3_000, 4_500]) {
       if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay))
-      const recovered = await recoverDevnetBattles({ getAccessToken, walletAddress: wallet.address })
+      const recovered = await recoverOnchainBattles({ getAccessToken, walletAddress: wallet.address })
       const battle = recovered.find((candidate) => candidate.onchainBattleAddress === battleAddress)
       if (battle) {
         await refreshBattles()
@@ -190,12 +192,12 @@ export default function Battles() {
             tokenMint: token.mint, stakeLamports: Math.round(stake * 1_000_000_000), durationSeconds: selectedDuration,
           })
           try {
-            return await syncDevnetBattle({
+            return await syncOnchainBattle({
               getAccessToken, walletAddress: wallet.address,
               body: { action: 'create', ...onchain },
             })
           } catch (syncError) {
-            const recovered = await recoverConfirmedDevnetBattle(onchain.battleAddress)
+            const recovered = await recoverConfirmedOnchainBattle(onchain.battleAddress)
             if (recovered) return recovered
             throw syncError
           }
@@ -256,12 +258,12 @@ export default function Battles() {
           battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
         })
         try {
-          joinedBattle = await syncDevnetBattle({
+          joinedBattle = await syncOnchainBattle({
             getAccessToken, walletAddress: wallet.address,
             body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
           })
         } catch (syncError) {
-          joinedBattle = await recoverConfirmedDevnetBattle(onchain.battleAddress)
+          joinedBattle = await recoverConfirmedOnchainBattle(onchain.battleAddress)
           if (!joinedBattle) throw syncError
         }
       } else {
@@ -291,13 +293,13 @@ export default function Battles() {
         wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
         battleIdHex: viewBattle.onchainBattleId,
       })
-      await syncDevnetEscrowAction({
+      await syncOnchainEscrowAction({
         getAccessToken, walletAddress: wallet.address,
         body: { action: 'cancel', ...onchain },
       })
       setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
       setViewBattle(null)
-      notify('success', 'Battle Cancelled', 'Your Devnet stake has been returned to your wallet.')
+      notify('success', 'Battle Cancelled', `Your ${NETWORK_LABEL} stake has been returned to your wallet.`)
     } catch (error) {
       notify('error', 'Could Not Cancel', error.message)
     } finally {
@@ -315,13 +317,13 @@ export default function Battles() {
         creatorAddress: viewBattle.creatorAddress,
         opponentAddress: viewBattle.opponentAddress,
       })
-      await syncDevnetEscrowAction({
+      await syncOnchainEscrowAction({
         getAccessToken, walletAddress: wallet.address,
         body: { action: 'refund', ...onchain },
       })
       setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
       setViewBattle(null)
-      notify('success', 'Battle Refunded', 'Both Devnet stakes have been returned to their wallets.')
+      notify('success', 'Battle Refunded', `Both ${NETWORK_LABEL} stakes have been returned to their wallets.`)
     } catch (error) {
       notify('error', 'Could Not Refund', error.message)
     } finally {
@@ -345,10 +347,10 @@ export default function Battles() {
       <div className="page-header">
         <h1 className="page-title">⚔ Battles</h1>
         <p className="page-subtitle">Browse open battles or create your own challenge</p>
-        {isDevnetEscrow && (
+        {isOnchainEscrow && (
           <div className="devnet-notice" role="status">
-            <strong>DEVNET TEST MODE</strong>
-            <span>Uses test SOL only. The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
+            <strong>{NETWORK === 'devnet' ? 'DEVNET TEST MODE' : 'MAINNET ESCROW'}</strong>
+            <span>{NETWORK === 'devnet' ? 'Uses test SOL only. ' : ''}The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
           </div>
         )}
       </div>
@@ -468,7 +470,7 @@ export default function Battles() {
           </div>
         </div>
 
-        {isDevnetEscrow && (
+        {isOnchainEscrow && (
           <p className="form-hint">
             {holderFeeQuote?.initialized && holderFeeQuote.holderMint !== '11111111111111111111111111111111'
               ? `Your verified holder balance sets this battle's ${formatFeePercent(feeBps)} fee. The rate is locked on-chain when you create it.`
@@ -593,15 +595,15 @@ export default function Battles() {
               </section>
             )}
 
-            {isDevnetEscrow && viewBattle.status === 'active' && (
+            {isOnchainEscrow && viewBattle.status === 'active' && (
               <div className="escrow-status" role="status">
-                <strong>Escrow funded on Devnet</strong>
-                <span>The {viewBattle.pot} SOL test pot is locked. At completion, the oracle records both results, sends the 0.25% fee, and pays the winner automatically.</span>
+                <strong>Escrow funded on {NETWORK_LABEL}</strong>
+                <span>The {viewBattle.pot} SOL pot is locked. At completion, the oracle records both results, sends the fee locked for this battle, and pays the winner automatically.</span>
                 {refundAt && <small>Fallback: either participant can refund both stakes after {refundAt} if settlement is still unavailable.</small>}
               </div>
             )}
 
-            {!isDevnetEscrow && viewBattle.status === 'active' && viewBattle.tokenA.perf !== undefined && viewBattle.tokenB?.perf !== undefined && (
+            {!isOnchainEscrow && viewBattle.status === 'active' && viewBattle.tokenA.perf !== undefined && viewBattle.tokenB?.perf !== undefined && (
               <>
                 <div className="progress-bar-wrap">
                   <div

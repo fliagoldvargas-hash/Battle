@@ -7,6 +7,7 @@ const TOKEN_PROGRAM_IDS = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdYdY5rTyEFD9R29qn6R7b2hv3ih3dYY8kLAs',
 ])
+const onchainNetwork = () => ['devnet', 'mainnet'].includes(process.env.BATTLE_NETWORK)
 
 const send = (response, status, body) => response.status(status).json(body)
 const discriminator = (name) => createHash('sha256').update(`global:${name}`).digest().subarray(0, 8)
@@ -27,7 +28,7 @@ function server() {
     authority,
     adminWallet: required('PROTOCOL_ADMIN_WALLET'),
     programId: new PublicKey(required('ESCROW_PROGRAM_ID')),
-    connection: new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed'),
+    connection: new Connection(process.env.SOLANA_RPC_URL || (process.env.BATTLE_NETWORK === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com'), 'confirmed'),
     privy: new PrivyClient({ appId, appSecret: required('PRIVY_APP_SECRET') }),
   }
 }
@@ -74,12 +75,12 @@ async function ensureMint(connection, mint) {
 
 export default async function handler(request, response) {
   if (request.method === 'GET') {
-    if (process.env.BATTLE_NETWORK !== 'devnet') return send(response, 404, { error: 'Holder fee management is not available on this network.' })
+    if (!onchainNetwork()) return send(response, 404, { error: 'Holder fee management is not available on this network.' })
     const adminWallet = process.env.PROTOCOL_ADMIN_WALLET?.trim()
     return send(response, 200, { configured: Boolean(adminWallet), adminWallet: adminWallet || null })
   }
   if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' })
-  if (process.env.BATTLE_NETWORK !== 'devnet') return send(response, 404, { error: 'Holder fee management is not available on this network.' })
+  if (!onchainNetwork()) return send(response, 404, { error: 'Holder fee management is not available on this network.' })
 
   try {
     const { authority, adminWallet, programId, connection, privy } = server()

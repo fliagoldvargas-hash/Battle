@@ -263,11 +263,11 @@ export default async function handler(request, response) {
     try {
       const { supabase } = createServerClients()
       const network = battleNetwork()
-      // Devnet escrow battles are settled by the dedicated on-chain oracle path.
-      // Never run the legacy treasury settlement path for this network.
-      const processed = network === 'devnet' ? [] : await processActiveBattles(supabase, 25, network)
+      // On-chain escrow battles are settled exclusively by the oracle path.
+      // Never run the legacy treasury settlement path on either Solana network.
+      const processed = ['devnet', 'mainnet'].includes(network) ? [] : await processActiveBattles(supabase, 25, network)
       let settlements = []
-      if (network !== 'devnet') {
+      if (!['devnet', 'mainnet'].includes(network)) {
         try {
           settlements = await settleFinishedBattles(supabase)
         } catch (settlementError) {
@@ -294,8 +294,8 @@ export default async function handler(request, response) {
   }
 
   try {
-    if (battleNetwork() === 'devnet') {
-      return send(response, 409, { error: 'Use the on-chain Devnet escrow endpoint for this preview.' })
+    if (['devnet', 'mainnet'].includes(battleNetwork())) {
+      return send(response, 409, { error: 'Use the on-chain escrow endpoint for this deployment.' })
     }
     const { privy, supabase } = createServerClients()
     const identity = await authenticateRequest(request, privy)

@@ -30,47 +30,47 @@ async function postBattleAction({ getAccessToken, walletAddress, body }) {
   return mapBattle(result.battle)
 }
 
-async function postDevnetEscrowAction({ getAccessToken, walletAddress, body }) {
+async function postOnchainEscrowAction({ getAccessToken, walletAddress, body }) {
   const accessToken = await getPrivyAccessToken(getAccessToken)
   for (const delay of [0, 1_000]) {
     if (delay) await new Promise(resolve => setTimeout(resolve, delay))
-    const response = await fetch('/api/devnet-battles', {
+    const response = await fetch('/api/onchain-battles', {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, walletAddress }),
     })
     const result = await response.json().catch(() => ({}))
     if (response.ok) return mapBattle(result.battle)
-    const isConfirmationLag = response.status === 400 && result.error === 'The Devnet transaction was not confirmed by the escrow program.'
-    if (!isConfirmationLag || delay) throw new Error(result.error || 'Unable to synchronize the Devnet battle.')
+    const isConfirmationLag = response.status === 400 && result.error === 'The transaction was not confirmed by the escrow program.'
+    if (!isConfirmationLag || delay) throw new Error(result.error || 'Unable to synchronize the on-chain battle.')
   }
 }
 
-export function syncDevnetBattle(input) {
-  return postDevnetEscrowAction({
+export function syncOnchainBattle(input) {
+  return postOnchainEscrowAction({
     getAccessToken: input.getAccessToken,
     walletAddress: input.walletAddress,
     body: input.body,
   })
 }
 
-export function syncDevnetEscrowAction(input) {
-  return postDevnetEscrowAction({
+export function syncOnchainEscrowAction(input) {
+  return postOnchainEscrowAction({
     getAccessToken: input.getAccessToken,
     walletAddress: input.walletAddress,
     body: input.body,
   })
 }
 
-export async function recoverDevnetBattles({ getAccessToken, walletAddress }) {
+export async function recoverOnchainBattles({ getAccessToken, walletAddress }) {
   const accessToken = await getPrivyAccessToken(getAccessToken)
-  const response = await fetch('/api/devnet-battles', {
+  const response = await fetch('/api/onchain-battles', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'recover', walletAddress }),
   })
   const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(result.error || 'Unable to recover Devnet battles.')
+  if (!response.ok) throw new Error(result.error || 'Unable to recover on-chain battles.')
   return (result.battles ?? []).map(mapBattle)
 }
 

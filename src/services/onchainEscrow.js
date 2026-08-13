@@ -1,9 +1,10 @@
 import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstruction } from '@solana/web3.js'
 
 const PROGRAM_ID = import.meta.env.VITE_ESCROW_PROGRAM_ID
-const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.devnet.solana.com'
 const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
+const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || (NETWORK === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com')
 const CHAIN = `solana:${NETWORK}`
+const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
 const EMPTY_PUBLIC_KEY = '11111111111111111111111111111111'
 
 function requireProgram() {
@@ -53,7 +54,7 @@ function randomBattleId() {
 }
 
 function bytesFromHex(hex) {
-  if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error('Invalid Devnet battle identifier.')
+  if (!/^[0-9a-f]{32}$/i.test(hex)) throw new Error('Invalid on-chain battle identifier.')
   return Uint8Array.from(hex.match(/.{1,2}/g), (pair) => Number.parseInt(pair, 16))
 }
 
@@ -99,7 +100,7 @@ function walletTransactionError(error) {
     ? error.message
     : error?.message ?? error?.error?.message ?? error?.reason
   if (message && String(message).trim()) return String(message)
-  return 'The connected wallet did not complete the Devnet transaction. Approve the transaction in your wallet and try again.'
+  return `The connected wallet did not complete the ${NETWORK_LABEL} transaction. Approve the transaction in your wallet and try again.`
 }
 
 async function send({ wallet, signAndSendTransaction, instruction }) {
@@ -117,7 +118,7 @@ async function send({ wallet, signAndSendTransaction, instruction }) {
     if (result.signature instanceof Uint8Array) return base58Encode(result.signature)
     throw new Error('Wallet did not return a Solana transaction signature.')
   } catch (error) {
-    console.error('Devnet escrow transaction failed', error)
+    console.error('On-chain escrow transaction failed', error)
     throw new Error(walletTransactionError(error))
   }
 }
@@ -234,7 +235,7 @@ export async function holderMintDecimals(mint) {
   }
   const connection = new Connection(RPC_URL, 'confirmed')
   const account = await connection.getAccountInfo(publicKey, 'confirmed')
-  if (!account) throw new Error('This CA does not exist on Solana Devnet. Use the CA of a real Devnet SPL token mint.')
+  if (!account) throw new Error(`This CA does not exist on Solana ${NETWORK_LABEL}. Use an initialized SPL token mint on this network.`)
   const bytes = accountBytes(account)
   const owner = account?.owner?.toBase58()
   const supportedTokenPrograms = new Set(['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', 'TokenzQdYhQPLqP2K1gSN3JwzQfE6VTMZqcxAmVR2qj'])

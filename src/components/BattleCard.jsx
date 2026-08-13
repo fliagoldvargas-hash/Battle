@@ -13,7 +13,8 @@ function formatTime(seconds) {
 
 export default function BattleCard({ battle, onClick, walletAddress }) {
   const [timeLeft, setTimeLeft] = useState(0)
-  const isDevnetEscrow = isOnchainEscrowEnabled()
+  const isOnchainEscrow = isOnchainEscrowEnabled()
+  const networkLabel = battle.network === 'mainnet' ? 'Mainnet' : 'Devnet'
 
   useEffect(() => {
     if (battle.status !== 'active') return
@@ -70,7 +71,7 @@ export default function BattleCard({ battle, onClick, walletAddress }) {
           <div className="battle-token token-a">
             <div className="token-symbol">{battle.tokenA.symbol}</div>
             <div className="token-mc">MC: {battle.tokenA.mc}</div>
-            {!isDevnetEscrow && battle.tokenA.perf !== undefined && (
+            {!isOnchainEscrow && battle.tokenA.perf !== undefined && (
               <div className={`token-perf ${battle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
                 {battle.tokenA.perf >= 0 ? '+' : ''}{Number(battle.tokenA.perf).toFixed(4)}%
               </div>
@@ -83,7 +84,7 @@ export default function BattleCard({ battle, onClick, walletAddress }) {
             <div className="battle-token token-b">
               <div className="token-symbol">{battle.tokenB.symbol}</div>
               <div className="token-mc">MC: {battle.tokenB.mc}</div>
-              {!isDevnetEscrow && battle.tokenB.perf !== undefined && (
+              {!isOnchainEscrow && battle.tokenB.perf !== undefined && (
                 <div className={`token-perf ${battle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
                 {battle.tokenB.perf >= 0 ? '+' : ''}{Number(battle.tokenB.perf).toFixed(4)}%
                 </div>
@@ -118,8 +119,8 @@ export default function BattleCard({ battle, onClick, walletAddress }) {
             <button className="view-btn" onClick={e => { e.stopPropagation(); onClick?.(battle) }}>View →</button>
           )}
         </div>
-        {isDevnetEscrow && battle.status === 'active' && (
-          <p className="devnet-card-note">Escrow funded on Devnet · oracle settlement runs automatically after the battle ends</p>
+        {isOnchainEscrow && battle.status === 'active' && (
+          <p className="devnet-card-note">Escrow funded on {networkLabel} · oracle settlement runs automatically after the battle ends</p>
         )}
         {onchainBattleUrl && (
           <a

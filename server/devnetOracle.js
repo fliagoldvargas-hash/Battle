@@ -4,24 +4,32 @@ import { getPumpFunToken } from './pumpfun.js'
 
 function oracleError(message) {
   const error = new Error(message)
-  error.code = 'DEVNET_ORACLE_NOT_CONFIGURED'
+  error.code = 'ONCHAIN_ORACLE_NOT_CONFIGURED'
   return error
+}
+
+function network() {
+  const value = process.env.BATTLE_NETWORK || process.env.VITE_BATTLE_NETWORK
+  if (value === 'devnet' || value === 'mainnet') return value
+  throw oracleError('The Solana network is not configured.')
 }
 
 function oracleConfig() {
   const secret = process.env.ORACLE_SETTLEMENT_AUTHORITY_SECRET
   const programId = process.env.ESCROW_PROGRAM_ID
-  if (!secret || !programId) throw oracleError('Devnet oracle signing is not configured.')
+  const configuredNetwork = network()
+  if (!secret || !programId) throw oracleError('On-chain oracle signing is not configured.')
   let authority
   try {
     authority = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(secret)))
   } catch {
-    throw oracleError('Devnet oracle signing key is invalid.')
+    throw oracleError('On-chain oracle signing key is invalid.')
   }
   return {
     authority,
     programId: new PublicKey(programId),
-    connection: new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com', 'confirmed'),
+    network: configuredNetwork,
+    connection: new Connection(process.env.SOLANA_RPC_URL || (configuredNetwork === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com'), 'confirmed'),
   }
 }
 
@@ -55,7 +63,7 @@ async function readOnchainBattle({ connection, programId, battle }) {
   const address = new PublicKey(battle.onchain_battle_address)
   const account = await connection.getAccountInfo(address, 'confirmed')
   if (!account || !account.owner.equals(programId) || account.data.length < 249) {
-    throw new Error('The Devnet escrow account cannot be verified.')
+    throw new Error('The on-chain escrow account cannot be verified.')
   }
 
   const data = account.data
@@ -81,14 +89,14 @@ async function readOnchainBattle({ connection, programId, battle }) {
     details.tokenBMint !== battle.token_b_mint ||
     details.stakeLamports !== Number(battle.stake_lamports)
   ) {
-    throw new Error('The Devnet escrow state does not match the battle record.')
+    throw new Error('The on-chain escrow state does not match the battle record.')
   }
   return details
 }
 
 async function settleOnchain({ battle, winner, settlement, connection, programId, authority }) {
   if (settlement.settlementAuthority !== authority.publicKey.toBase58()) {
-    throw oracleError('The Devnet oracle is not the authorized settlement signer.')
+    throw oracleError('The on-chain oracle is not the authorized settlement signer.')
   }
   const instruction = new TransactionInstruction({
     programId,
@@ -109,7 +117,8 @@ async function settleOnchain({ battle, winner, settlement, connection, programId
   transaction.sign(authority)
 
   // The legacy sendTransaction(signers) path fetches another blockhash even
-  // after one has been set. That was causing public Devnet RPC 429 errors.
+  // after one has been set. Sending the already signed transaction also keeps
+  // Mainnet settlement latency and RPC use low.
   // Serialize the already signed transaction so one settlement needs only the
   // blockhash above, one broadcast, and one confirmation request.
   const signature = await connection.sendRawTransaction(transaction.serialize(), {
@@ -123,10 +132,10 @@ async function settleOnchain({ battle, winner, settlement, connection, programId
   return signature
 }
 
-async function reconcilePendingSettlements({ supabase, connection }) {
+async function reconcilePendingSettlements({ supabase, connection, battleNetwork }) {
   const { data: pending, error } = await supabase.from('battles')
     .select('id,onchain_battle_address,settlement_signature,updated_at')
-    .eq('network', 'devnet')
+    .eq('network', battleNetwork)
     .in('status', ['active', 'finished'])
     .like('settlement_signature', 'oracle-pending:%')
   if (error) throw error
@@ -167,20 +176,20 @@ async function reconcilePendingSettlements({ supabase, connection }) {
   return awaitingConfirmation
 }
 
-export async function settleDevnetBattles(supabase, limit = 1) {
-  const { connection, programId, authority } = oracleConfig()
-  const awaitingConfirmation = await reconcilePendingSettlements({ supabase, connection })
+export async function settleOnchainBattles(supabase, limit = 1) {
+  const { connection, programId, authority, network: battleNetwork } = oracleConfig()
+  const awaitingConfirmation = await reconcilePendingSettlements({ supabase, connection, battleNetwork })
   const now = new Date().toISOString()
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
-    .eq('network', 'devnet')
+    .eq('network', battleNetwork)
     .in('status', ['active', 'finished'])
     .in('escrow_state', ['funded', 'error'])
     .or('settlement_signature.is.null,settlement_signature.like.pending:%')
     .lte('ends_at', now)
-    // With a public Devnet RPC, settle one battle at a time. Prioritizing the
-    // newest finished battle gives users the shortest possible payout delay
-    // while older retries are processed on subsequent minute runs.
+    // Settle one battle at a time. Prioritizing the newest finished battle
+    // gives users the shortest payout delay while older retries are handled
+    // by subsequent scheduler runs.
     .order('ends_at', { ascending: false })
     .limit(limit)
   if (error) throw error
@@ -234,7 +243,7 @@ export async function settleDevnetBattles(supabase, limit = 1) {
       if (receiptUpdateError) throw receiptUpdateError
       results.push({ id: claimed.id, signature: onchainSignature, winner: outcome.winner.mint, broadcast: true })
     } catch (error) {
-      console.error('Devnet oracle settlement failed', { battleId: battle.id, error })
+      console.error('On-chain oracle settlement failed', { battleId: battle.id, battleNetwork, error })
       await supabase.from('battles').update({
         escrow_state: 'error', escrow_error: 'oracle_settlement_requires_review', updated_at: new Date().toISOString(),
       }).eq('id', battle.id).like('settlement_signature', 'oracle-pending:%')
@@ -243,3 +252,6 @@ export async function settleDevnetBattles(supabase, limit = 1) {
   }
   return results
 }
+
+// Keep the Devnet name as a compatibility export for the isolated test branch.
+export const settleDevnetBattles = settleOnchainBattles

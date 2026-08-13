@@ -8,4 +8,4 @@ The contract stores the holder-token mint and the complete fee schedule on-chain
 
 Set `PROTOCOL_ADMIN_WALLET` in Vercel to the public Solana address that is permitted to administer the protocol. That wallet must connect through Privy and can then open **Protocol status** to initialize (once) and load the token CA and four thresholds. The server verifies the Privy session and linked wallet before requesting the on-chain update through the protocol authority.
 
-For Devnet, set the variable only in the Preview environment. Before Mainnet, deploy a separately audited program and configure the Mainnet RPC, program id, authority, fee treasury, and a Mainnet-specific `PROTOCOL_ADMIN_WALLET`.
+The `mainnet-release` branch contains a separate Mainnet program ID and never shares its authority, program accounts, or scheduler with Devnet. Before launch, follow [the Mainnet launch runbook](runbooks/mainnet-launch.md); it includes the required real-SOL funding, deployment, configuration, scheduler, and low-value settlement verification.

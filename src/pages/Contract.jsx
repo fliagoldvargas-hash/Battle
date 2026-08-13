@@ -18,6 +18,7 @@ const DEFAULT_FEES = ['100', '75', '50', '25', '10']
 export default function Contract() {
   const { wallet, getAccessToken } = useWallet()
   const isDevnet = import.meta.env.VITE_BATTLE_NETWORK === 'devnet'
+  const isMainnet = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet'
   const onchainEnabled = isOnchainEscrowEnabled()
   const [holderConfig, setHolderConfig] = useState(null)
   const [protocolAdmin, setProtocolAdmin] = useState('')
@@ -136,12 +137,14 @@ export default function Contract() {
           <div className="contract-title">On-chain contract</div>
           <div className="status-line status-line-neutral">
             <span aria-hidden="true">i</span>
-            {isDevnet ? 'Devnet escrow program deployed for testing.' : 'Contract status is not available in this deployment.'}
+            {isDevnet ? 'Devnet escrow program deployed for testing.' : isMainnet ? 'Mainnet escrow program deployed for real-fund settlement.' : 'Contract status is not available in this deployment.'}
           </div>
           <p className="contract-copy">
             {isDevnet
               ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
-              : 'This screen does not make claims about an escrow deployment or real-fund settlement.'}
+              : isMainnet
+                ? 'Both player deposits are held by the Token Battle escrow program on Solana Mainnet. The oracle settles the battle on-chain after it ends, sending the locked fee and remaining pot in the same transaction.'
+                : 'This screen does not make claims about an escrow deployment or real-fund settlement.'}
           </p>
         </div>
 
@@ -212,14 +215,14 @@ export default function Contract() {
             <li>Both players deposit SOL before a battle becomes active.</li>
             <li>The oracle compares both Pump.fun market-cap changes to four decimals at settlement.</li>
             <li>Settlement sends the fee locked in the escrow battle and automatically pays the remaining pot to the winner after the battle ends.</li>
-            <li>As a fallback, either player can refund both Devnet stakes after the configured safety delay.</li>
+            <li>As a fallback, either player can refund both stakes after the configured safety delay.</li>
           </ul>
         </div>
 
         <div className="contract-card animate-in stagger-3">
           <div className="contract-title">Security review</div>
           <div className="status-line status-line-neutral"><span aria-hidden="true">i</span>No independent audit has been completed yet.</div>
-          <p className="contract-copy">Do not treat this protocol as audited, production-ready, or trustless. The escrow program is a Devnet test deployment and has not undergone an independent security audit.</p>
+          <p className="contract-copy">Do not treat this protocol as audited or trustless. The escrow program has not undergone an independent security audit.</p>
         </div>
       </div>
     </section>
