@@ -273,12 +273,12 @@ export default function Contract() {
           </div>
         )}
 
-        {onchainEnabled && wallet.connected && !isAdmin && (
+        {configurationEnabled && wallet.connected && !isAdmin && (
           <div className="contract-card animate-in stagger-3">
-            <div className="contract-title">Holder token administration</div>
+            <div className="contract-title">Protocol administration</div>
             <p className="contract-copy">
               {protocolAdmin
-                ? 'Only the configured protocol owner wallet can load or change the holder-token CA and fee tiers.'
+                ? <>The connected wallet <span className="contract-copy-mono">{wallet.address}</span> is not the configured protocol owner. Connect <span className="contract-copy-mono">{protocolAdmin}</span> to provision the treasury or change holder-token settings.</>
                 : 'Protocol-owner access has not been configured in this environment yet.'}
             </p>
           </div>
