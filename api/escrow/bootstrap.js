@@ -50,8 +50,16 @@ async function assertProtocolOwner(request, privy) {
 async function existingTreasury(privy) {
   const configuredId = process.env.ESCROW_TREASURY_WALLET_ID
   if (configuredId) return privy.wallets().get(configuredId)
-  for await (const wallet of privy.wallets().list({ chain_type: 'solana', external_id: 'battle-mainnet-treasury' })) return wallet
-  return null
+  const candidates = []
+  for await (const wallet of privy.wallets().list({
+    chain_type: 'solana', external_id: 'battle-mainnet-treasury', include_archived: true,
+  })) candidates.push(wallet)
+  if (candidates.length > 1) {
+    const error = new Error('Multiple unconfigured treasury wallets were found. Select one before provisioning again.')
+    error.status = 409
+    throw error
+  }
+  return candidates[0] ?? null
 }
 
 function treasuryPolicy(owner) {
@@ -110,6 +118,7 @@ export default async function handler(request, response) {
       chain_type: 'solana',
       display_name: 'Battle Mainnet Treasury',
       external_id: 'battle-mainnet-treasury',
+      'privy-idempotency-key': 'battle-mainnet-treasury-bootstrap-v1',
       owner: { user_id: userId },
       additional_signers: [{ signer_id: keyQuorum.id, override_policy_ids: [policy.id] }],
     })
