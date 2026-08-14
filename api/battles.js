@@ -11,6 +11,7 @@ const MIN_STAKE_LAMPORTS = 13_000_000
 const MAX_STAKE_LAMPORTS = 10_000_000_000
 const ALLOWED_DURATIONS = new Set([60, 1800, 3600, 7200, 14400, 28800, 86400])
 const DEPOSIT_INTENT_TTL_MS = 10 * 60 * 1000
+const SOLANA_MAINNET_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 const send = (response, status, body) => response.status(status).json(body)
 const battleNetwork = () => process.env.BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
@@ -102,6 +103,40 @@ function assertCreatePayload(payload) {
     const error = new Error('Invalid token or battle duration.')
     error.status = 400
     throw error
+  }
+}
+
+async function getRecentBlockhash() {
+  let rpcResponse
+  try {
+    rpcResponse = await fetch(SOLANA_MAINNET_RPC, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 'battle-deposit-blockhash',
+        method: 'getLatestBlockhash',
+        params: [{ commitment: 'processed' }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    const error = new Error('Solana is temporarily unavailable. Please try again in a moment.')
+    error.status = 503
+    throw error
+  }
+
+  const payload = await rpcResponse.json().catch(() => null)
+  const value = payload?.result?.value
+  if (!rpcResponse.ok || payload?.error || typeof value?.blockhash !== 'string' || !Number.isSafeInteger(Number(value.lastValidBlockHeight))) {
+    const error = new Error('Solana is temporarily unavailable. Please try again in a moment.')
+    error.status = 503
+    throw error
+  }
+
+  return {
+    blockhash: value.blockhash,
+    lastValidBlockHeight: Number(value.lastValidBlockHeight),
   }
 }
 
@@ -317,12 +352,16 @@ export default async function handler(request, response) {
     const walletAddress = verifiedSolanaWallet(identity.user, request.body?.walletAddress)
 
     if (request.body?.action === 'prepare_create' || request.body?.action === 'prepare_join') {
+      // Do this server-side: browser calls to a public Solana RPC regularly
+      // fail before a connected external wallet has a chance to show its prompt.
+      const recentBlockhash = await getRecentBlockhash()
       const prepared = await createDepositIntent({ supabase, userId: identity.userId, walletAddress, payload: request.body })
       return send(response, 200, {
         depositIntentId: prepared.intent.id,
         stakeLamports: Number(prepared.intent.stake_lamports),
         feeBps: prepared.feeBps,
         expiresAt: prepared.intent.expires_at,
+        recentBlockhash,
       })
     }
 

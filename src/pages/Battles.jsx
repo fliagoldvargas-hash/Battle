@@ -233,7 +233,7 @@ export default function Battles() {
             getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
             stakeSol: stake, durationSeconds: selectedDuration,
           })
-          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports) : null
+          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports, prepared.recentBlockhash) : null
           return confirmBattleDeposit({
             getAccessToken, walletAddress: wallet.address, action: 'create', token: { mint: token.mint },
             depositIntentId: prepared.depositIntentId, depositSignature,
@@ -307,7 +307,7 @@ export default function Battles() {
       } else {
         joinedBattle = await (async () => {
           const prepared = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id })
-          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports) : null
+          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports, prepared.recentBlockhash) : null
           return confirmBattleDeposit({
             getAccessToken, walletAddress: wallet.address, action: 'join', token: { mint: token.mint },
             depositIntentId: prepared.depositIntentId, depositSignature,

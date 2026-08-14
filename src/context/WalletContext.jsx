@@ -183,9 +183,9 @@ export function WalletProvider({ children }) {
     }
   }, [activeWallet, logout])
 
-  const depositStake = useCallback((lamports) => {
+  const depositStake = useCallback((lamports, recentBlockhash) => {
     if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
-    return sendEscrowDeposit({ wallet: activeWallet, lamports, signAndSendTransaction })
+    return sendEscrowDeposit({ wallet: activeWallet, lamports, recentBlockhash, signAndSendTransaction })
   }, [activeWallet, signAndSendTransaction])
 
   const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
