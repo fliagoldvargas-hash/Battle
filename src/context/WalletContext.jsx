@@ -48,7 +48,13 @@ export function WalletProvider({ children }) {
     const alreadyLinked = user?.linkedAccounts?.some((linkedAccount) => (
       linkedAccount.type === 'wallet' && linkedAccount.address === solanaWallet.address
     ))
-    if ((authenticated && alreadyLinked) || authenticationInFlight.current) return
+    if (authenticationInFlight.current) return
+    if (authenticated && alreadyLinked) {
+      setSelectedWalletAddress(solanaWallet.address)
+      connectionInFlight.current = false
+      setIsConnecting(false)
+      return
+    }
     authenticationInFlight.current = true
     try {
       if (authenticated) {

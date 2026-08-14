@@ -203,7 +203,7 @@ export default function Contract() {
           </div>
           <p className="contract-copy">
             {treasuryMode
-              ? 'Both player deposits are verified on Solana Mainnet and held by a dedicated Privy treasury. After the battle ends, one automated transaction pays the winner and the locked platform fee.'
+              ? 'Both player deposits are verified on Solana Mainnet and held by a dedicated Privy treasury. After the battle ends, an automated transaction pays the winner and the locked platform fee.'
               : escrowStatus?.configured && isDevnet
               ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
               : escrowStatus?.configured && isMainnet
@@ -289,15 +289,15 @@ export default function Contract() {
           <ul className="protocol-list">
             <li>Both players deposit SOL before a battle becomes active.</li>
             <li>The oracle compares both Pump.fun market-cap changes to four decimals at settlement.</li>
-            <li>Settlement sends the fee locked in the escrow battle and automatically pays the remaining pot to the winner after the battle ends.</li>
-            <li>As a fallback, either player can refund both stakes after the configured safety delay.</li>
+            <li>Settlement sends the fee locked for the battle and automatically pays the remaining pot to the winner after the battle ends.</li>
+            <li>If a payment cannot be confirmed, the battle is explicitly marked for manual review; treasury-mode battles do not expose an automatic refund button.</li>
           </ul>
         </div>
 
         <div className="contract-card animate-in stagger-3">
           <div className="contract-title">Security review</div>
           <div className="status-line status-line-neutral"><span aria-hidden="true">i</span>No independent audit has been completed yet.</div>
-          <p className="contract-copy">Do not treat this protocol as audited or trustless. The escrow program has not undergone an independent security audit.</p>
+          <p className="contract-copy">Do not treat this protocol as audited or trustless. Mainnet settlements use a custodial Privy treasury and have not undergone an independent security audit.</p>
         </div>
       </div>
     </section>

@@ -16,7 +16,9 @@ const rpcUrl = () => process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.sol
 
 function number(value) {
   const parsed = Number(value)
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 10_000) throw new Error('The fee schedule contains an invalid basis-points value.')
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 10_000) {
+    throw Object.assign(new Error('The fee schedule contains an invalid basis-points value.'), { status: 400 })
+  }
   return parsed
 }
 
@@ -70,7 +72,11 @@ export async function validateFeeSchedule(input) {
   let mint = null
   let holderMintDecimals = 0
   if (holderMint) {
-    mint = new PublicKey(holderMint)
+    try {
+      mint = new PublicKey(holderMint)
+    } catch {
+      throw Object.assign(new Error('The supplied CA is not a valid Solana mint address.'), { status: 400 })
+    }
     const account = await new Connection(rpcUrl(), 'confirmed').getAccountInfo(mint, 'confirmed')
     if (!account || !TOKEN_PROGRAM_IDS.includes(account.owner.toBase58()) || account.data.length < 82 || account.data[45] !== 1) {
       throw Object.assign(new Error('The supplied CA is not an initialized SPL or Token-2022 mint.'), { status: 400 })
