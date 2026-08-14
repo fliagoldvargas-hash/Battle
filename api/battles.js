@@ -5,7 +5,9 @@ import { verifyStakeTransfer } from '../server/escrow.js'
 import { quoteFeeForWallet } from '../server/holderFees.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
-const MIN_STAKE_LAMPORTS = 100_000_000
+// 0.013 SOL per player means a 0.026 SOL matched pot. It keeps the first
+// Mainnet test close to US$2 while still using whole, exact lamport amounts.
+const MIN_STAKE_LAMPORTS = 13_000_000
 const MAX_STAKE_LAMPORTS = 10_000_000_000
 const ALLOWED_DURATIONS = new Set([60, 1800, 3600, 7200, 14400, 28800, 86400])
 const DEPOSIT_INTENT_TTL_MS = 10 * 60 * 1000
@@ -88,7 +90,7 @@ function parseStakeLamports(stakeSol) {
   if (!Number.isSafeInteger(stakeLamports)
     || stakeLamports < MIN_STAKE_LAMPORTS
     || stakeLamports > MAX_STAKE_LAMPORTS) {
-    const error = new Error('Stake must be between 0.1 and 10 SOL.')
+    const error = new Error('Stake must be between 0.013 and 10 SOL.')
     error.status = 400
     throw error
   }
