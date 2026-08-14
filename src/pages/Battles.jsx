@@ -244,7 +244,7 @@ export default function Battles() {
       setCreateOpen(false)
       setSelectedToken(null)
       setTokenAddress('')
-      setStakeAmount('5')
+      setStakeAmount('0.013')
     } catch (error) {
       const message = actionErrorMessage(error, 'The wallet could not create this battle. Approve the wallet transaction and try again.')
       console.error('Battle creation failed', error)
