@@ -98,6 +98,27 @@ async function hasTreasuryBalance(rpc, treasury, requiredLamports) {
   return Number(balance) >= requiredLamports + 20_000
 }
 
+// A System Program transfer can create a recipient account, but only when the
+// transfer carries enough SOL to make that new account rent exempt. Small
+// platform fees therefore cannot initialise an empty fee wallet. Check this
+// before we ever ask a player to deposit, rather than discovering it after a
+// completed battle needs to be paid.
+export async function assertTreasuryReadyForDeposits() {
+  const settlement = config()
+  const rpc = createSolanaRpc(settlement.rpcUrl)
+  const [{ value: feeAccount }, { value: treasuryBalance }] = await Promise.all([
+    rpc.getAccountInfo(address(settlement.feeTreasury), { encoding: 'base64', commitment: 'confirmed' }).send(),
+    rpc.getBalance(address(settlement.treasury), { commitment: 'confirmed' }).send(),
+  ])
+
+  if (!feeAccount) {
+    throw settlementError('The platform fee wallet is not initialized on Solana Mainnet. No deposit was requested.', 503)
+  }
+  if (Number(treasuryBalance) < 20_000) {
+    throw settlementError('The settlement treasury needs a small SOL balance for network fees. No deposit was requested.', 503)
+  }
+}
+
 async function reconcileSubmitted(supabase, rpc, network) {
   const { data: pending, error } = await supabase.from('battles')
     .select('id,settlement_signature,settlement_reference_id')
@@ -149,7 +170,10 @@ export async function settleFinishedBattles(supabase, limit = 1, network = 'main
   const privy = new PrivyClient({ appId: settlement.appId, appSecret: settlement.appSecret })
   const submitted = []
   for (const battle of battles ?? []) {
-    const referenceId = `battle-${battle.id}-settlement`
+    // A manually reviewed, proven-not-broadcast settlement may be requeued
+    // with a new Privy idempotency key. Honour that stored reference instead
+    // of rebuilding the original key from the battle id.
+    const referenceId = battle.settlement_reference_id || `battle-${battle.id}-settlement`
     const { data: claimed, error: claimError } = await supabase.from('battles').update({
       escrow_state: 'payment_pending', settlement_reference_id: referenceId, escrow_error: null, updated_at: new Date().toISOString(),
     }).eq('id', battle.id).eq('status', 'finished').eq('escrow_state', 'funded').is('settlement_signature', null).select('*').maybeSingle()

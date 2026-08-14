@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from '../server/pumpfun.js'
 import { verifyStakeTransfer } from '../server/escrow.js'
 import { quoteFeeForWallet } from '../server/holderFees.js'
+import { assertTreasuryReadyForDeposits } from '../server/settlement.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 // 0.013 SOL per player means a 0.026 SOL matched pot. It keeps the first
@@ -375,6 +376,9 @@ export default async function handler(request, response) {
     const walletAddress = verifiedSolanaWallet(identity.user, request.body?.walletAddress)
 
     if (request.body?.action === 'prepare_create' || request.body?.action === 'prepare_join') {
+      // Do this before generating an intent or asking the wallet to sign. A
+      // small fee cannot create an empty fee-recipient account during payout.
+      await assertTreasuryReadyForDeposits()
       // Do this server-side: browser calls to a public Solana RPC regularly
       // fail before a connected external wallet has a chance to show its prompt.
       const recentBlockhash = await getRecentBlockhash()
