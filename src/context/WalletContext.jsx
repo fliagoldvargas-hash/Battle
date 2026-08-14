@@ -185,8 +185,21 @@ export function WalletProvider({ children }) {
 
   const depositStake = useCallback((lamports, recentBlockhash) => {
     if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
-    return sendEscrowDeposit({ wallet: activeWallet, lamports, recentBlockhash, signAndSendTransaction })
-  }, [activeWallet, signAndSendTransaction])
+    if (typeof activeWallet.signAndSendTransaction !== 'function') {
+      throw new Error('Your connected wallet cannot send Solana transactions. Disconnect it and connect Phantom or Solflare again.')
+    }
+
+    // Deposits from Phantom/Solflare must use the standard-wallet method on
+    // the external wallet itself. Routing them through Privy's generic hook
+    // can open Privy's internal transaction UI instead of the extension and
+    // leave Opera on a black overlay before any signature request is shown.
+    return sendEscrowDeposit({
+      wallet: activeWallet,
+      lamports,
+      recentBlockhash,
+      signAndSendTransaction: ({ transaction, chain }) => activeWallet.signAndSendTransaction({ transaction, chain }),
+    })
+  }, [activeWallet])
 
   const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
 
