@@ -12,7 +12,7 @@ select cron.schedule(
   '30 seconds',
   $job$
     select net.http_get(
-      url := 'https://vantaagents.fun/api/cron/battles',
+      url := 'https://www.vantaagents.fun/api/cron/battles',
       headers := jsonb_build_object(
         'Authorization',
         'Bearer ' || (
