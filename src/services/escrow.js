@@ -2,6 +2,7 @@ import {
   address,
   appendTransactionMessageInstructions,
   compileTransaction,
+  createSolanaRpc,
   createNoopSigner,
   createTransactionMessage,
   getBase58Decoder,
@@ -13,10 +14,7 @@ import {
 import { getTransferSolInstruction } from '@solana-program/system'
 
 const ESCROW_DESTINATION = import.meta.env.VITE_ESCROW_TREASURY_ADDRESS
-// Privy can replace this sentinel with a fresh mainnet blockhash immediately
-// before signing. This avoids sending a transaction with a stale blockhash
-// when the user leaves the wallet modal open.
-const PRIVY_BLOCKHASH = '11111111111111111111111111111111'
+const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 
 function requireEscrowDestination() {
   if (!ESCROW_DESTINATION) {
@@ -28,6 +26,10 @@ function requireEscrowDestination() {
 export async function buildEscrowDepositTransaction({ walletAddress, lamports }) {
   const source = address(walletAddress)
   const destination = requireEscrowDestination()
+  // External wallets (Phantom/Solflare) sign locally and require a real
+  // recent blockhash. A dummy blockhash only works when Privy's own API is
+  // responsible for replacing it before signing.
+  const { value: latestBlockhash } = await createSolanaRpc(RPC_URL).getLatestBlockhash().send()
   const instruction = getTransferSolInstruction({
     source: createNoopSigner(source),
     destination,
@@ -36,7 +38,7 @@ export async function buildEscrowDepositTransaction({ walletAddress, lamports })
   const message = pipe(
     createTransactionMessage({ version: 0 }),
     (value) => setTransactionMessageFeePayer(source, value),
-    (value) => setTransactionMessageLifetimeUsingBlockhash({ blockhash: PRIVY_BLOCKHASH, lastValidBlockHeight: 0n }, value),
+    (value) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, value),
     (value) => appendTransactionMessageInstructions([instruction], value),
   )
   return new Uint8Array(getTransactionEncoder().encode(compileTransaction(message)))
