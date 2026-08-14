@@ -12,15 +12,18 @@ function required(name) {
 }
 
 function server() {
-  const appId = process.env.PRIVY_APP_ID || process.env.VITE_PRIVY_APP_ID
-  if (!appId) throw Object.assign(new Error('Missing PRIVY_APP_ID.'), { status: 503 })
   return {
     adminWallet: required('PROTOCOL_ADMIN_WALLET'),
-    privy: new PrivyClient({ appId, appSecret: required('PRIVY_APP_SECRET') }),
     supabase: createClient(process.env.SUPABASE_URL || required('VITE_SUPABASE_URL'), required('SUPABASE_SERVICE_ROLE_KEY'), {
       auth: { persistSession: false, autoRefreshToken: false },
     }),
   }
+}
+
+function privyClient() {
+  const appId = process.env.PRIVY_APP_ID || process.env.VITE_PRIVY_APP_ID
+  if (!appId) throw Object.assign(new Error('Missing PRIVY_APP_ID.'), { status: 503 })
+  return new PrivyClient({ appId, appSecret: required('PRIVY_APP_SECRET') })
 }
 
 async function assertAdmin(request, privy, adminWallet) {
@@ -36,7 +39,7 @@ async function assertAdmin(request, privy, adminWallet) {
 
 export default async function handler(request, response) {
   try {
-    const { adminWallet, privy, supabase } = server()
+    const { adminWallet, supabase } = server()
     if (request.method === 'GET') {
       const schedule = request.query?.wallet && ADDRESS.test(request.query.wallet)
         ? await quoteFeeForWallet(supabase, request.query.wallet)
@@ -44,6 +47,7 @@ export default async function handler(request, response) {
       return send(response, 200, { configured: true, adminWallet, ...schedule })
     }
     if (request.method !== 'POST') return send(response, 405, { error: 'Method not allowed.' })
+    const privy = privyClient()
     await assertAdmin(request, privy, adminWallet)
     const schedule = await validateFeeSchedule(request.body)
     const saved = await saveFeeSchedule(supabase, schedule, adminWallet)
