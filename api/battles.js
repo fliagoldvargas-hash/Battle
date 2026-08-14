@@ -242,13 +242,33 @@ async function loadDepositIntent(supabase, userId, walletAddress, intentId, acti
   return intent
 }
 
+async function refreshDepositBlockhash({ supabase, userId, walletAddress, intentId }) {
+  if (typeof intentId !== 'string') {
+    const error = new Error('Prepare the treasury deposit before requesting a fresh approval.')
+    error.status = 400
+    throw error
+  }
+  const { data: intent, error } = await supabase.from('battle_deposit_intents').select('*')
+    .eq('id', intentId).eq('network', battleNetwork()).eq('privy_user_id', userId).eq('wallet_address', walletAddress).maybeSingle()
+  if (error) throw error
+  if (!intent || new Date(intent.expires_at).getTime() < Date.now()) {
+    const expired = new Error('This deposit request expired. Prepare a new battle before signing.')
+    expired.status = 409
+    throw expired
+  }
+  return intent
+}
+
 async function confirmCreateDeposit({ supabase, userId, walletAddress, payload }) {
   const intent = await loadDepositIntent(supabase, userId, walletAddress, payload?.depositIntentId, 'create')
   if (intent.deposit_signature) {
     const { data: existing } = await supabase.from('battles').select('*').eq('creator_deposit_signature', intent.deposit_signature).maybeSingle()
     if (existing) return existing
   }
-  const deposit = await verifyStakeTransfer({ signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports) })
+  const deposit = await verifyStakeTransfer({
+    signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports),
+    lastValidBlockHeight: payload?.lastValidBlockHeight,
+  })
   await assertDepositIsUnused(supabase, deposit.signature)
   const { data, error } = await supabase.from('battles').insert({
     network: battleNetwork(), creator_privy_user_id: userId, creator_wallet: walletAddress,
@@ -277,7 +297,10 @@ async function confirmJoinDeposit({ supabase, userId, walletAddress, payload }) 
     unavailable.status = 409
     throw unavailable
   }
-  const deposit = await verifyStakeTransfer({ signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports) })
+  const deposit = await verifyStakeTransfer({
+    signature: payload?.depositSignature, walletAddress, expectedLamports: Number(intent.stake_lamports),
+    lastValidBlockHeight: payload?.lastValidBlockHeight,
+  })
   await assertDepositIsUnused(supabase, deposit.signature)
   const now = new Date()
   const { data, error } = await supabase.from('battles').update({
@@ -365,6 +388,19 @@ export default async function handler(request, response) {
       })
     }
 
+    if (request.body?.action === 'refresh_deposit_blockhash') {
+      const intent = await refreshDepositBlockhash({
+        supabase, userId: identity.userId, walletAddress, intentId: request.body?.depositIntentId,
+      })
+      return send(response, 200, {
+        depositIntentId: intent.id,
+        stakeLamports: Number(intent.stake_lamports),
+        feeBps: Number(intent.fee_bps),
+        expiresAt: intent.expires_at,
+        recentBlockhash: await getRecentBlockhash(),
+      })
+    }
+
     let battle
     if (request.body?.action === 'confirm_create') {
       battle = await confirmCreateDeposit({ supabase, userId: identity.userId, walletAddress, payload: request.body })
@@ -378,6 +414,9 @@ export default async function handler(request, response) {
   } catch (error) {
     const status = error.status ?? 500
     if (status >= 500) console.error('Battle API error', error)
-    return send(response, status, { error: status >= 500 ? 'Unable to update the battle right now.' : error.message })
+    return send(response, status, {
+      error: status >= 500 ? 'Unable to update the battle right now.' : error.message,
+      code: error.code,
+    })
   }
 }

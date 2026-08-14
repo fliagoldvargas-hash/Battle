@@ -26,7 +26,11 @@ async function postBattleAction({ getAccessToken, walletAddress, body }) {
   })
 
   const result = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(result.error || 'Unable to update the battle.')
+  if (!response.ok) {
+    const error = new Error(result.error || 'Unable to update the battle.')
+    error.code = result.code
+    throw error
+  }
   return result
 }
 
@@ -99,15 +103,31 @@ export function joinBattle(input) {
 }
 
 export async function confirmBattleDeposit(input) {
-  const result = await postBattleAction({
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    try {
+      const result = await postBattleAction({
+        getAccessToken: input.getAccessToken,
+        walletAddress: input.walletAddress,
+        body: {
+          action: input.action === 'join' ? 'confirm_join' : 'confirm_create',
+          depositIntentId: input.depositIntentId,
+          depositSignature: input.depositSignature,
+          lastValidBlockHeight: input.lastValidBlockHeight,
+          token: input.token,
+        },
+      })
+      return mapBattle(result.battle)
+    } catch (error) {
+      if (error?.code !== 'DEPOSIT_PENDING' || attempt === 14) throw error
+      await new Promise(resolve => setTimeout(resolve, 2_000))
+    }
+  }
+}
+
+export function refreshBattleDepositBlockhash(input) {
+  return postBattleAction({
     getAccessToken: input.getAccessToken,
     walletAddress: input.walletAddress,
-    body: {
-      action: input.action === 'join' ? 'confirm_join' : 'confirm_create',
-      depositIntentId: input.depositIntentId,
-      depositSignature: input.depositSignature,
-      token: input.token,
-    },
+    body: { action: 'refresh_deposit_blockhash', depositIntentId: input.depositIntentId },
   })
-  return mapBattle(result.battle)
 }

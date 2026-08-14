@@ -5,7 +5,7 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
+import { confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, refreshBattleDepositBlockhash, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, getOnchainStatus, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
@@ -180,6 +180,41 @@ export default function Battles() {
     return null
   }
 
+  const completeTreasuryDeposit = async ({ prepared, action, token }) => {
+    let currentPrepared = prepared
+
+    // A Solana blockhash is intentionally short-lived. If a user leaves the
+    // wallet approval open for too long, the first transaction cannot ever be
+    // accepted by the network. Request one fresh approval instead of leaving
+    // the battle in an error state or risking a second unverified deposit.
+    for (let approvalAttempt = 0; approvalAttempt < 2; approvalAttempt += 1) {
+      const depositSignature = escrowConfigured
+        ? await depositStake(currentPrepared.stakeLamports, currentPrepared.recentBlockhash)
+        : null
+      try {
+        return await confirmBattleDeposit({
+          getAccessToken,
+          walletAddress: wallet.address,
+          action,
+          token,
+          depositIntentId: currentPrepared.depositIntentId,
+          depositSignature,
+          lastValidBlockHeight: currentPrepared.recentBlockhash?.lastValidBlockHeight,
+        })
+      } catch (error) {
+        if (error?.code !== 'DEPOSIT_EXPIRED' || approvalAttempt === 1) throw error
+        notify('info', 'Refreshing Wallet Approval', 'The first Solana approval expired before it was sent. No SOL was transferred; please approve the fresh request.')
+        currentPrepared = await refreshBattleDepositBlockhash({
+          getAccessToken,
+          walletAddress: wallet.address,
+          depositIntentId: currentPrepared.depositIntentId,
+        })
+      }
+    }
+
+    throw new Error('Unable to refresh the wallet approval.')
+  }
+
   const formatMarketCap = (marketCap) => {
     if (!Number.isFinite(marketCap)) return 'MC unavailable'
     if (marketCap >= 1_000_000_000) return `MC $${(marketCap / 1_000_000_000).toFixed(2)}B`
@@ -233,11 +268,7 @@ export default function Battles() {
             getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
             stakeSol: stake, durationSeconds: selectedDuration,
           })
-          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports, prepared.recentBlockhash) : null
-          return confirmBattleDeposit({
-            getAccessToken, walletAddress: wallet.address, action: 'create', token: { mint: token.mint },
-            depositIntentId: prepared.depositIntentId, depositSignature,
-          })
+          return completeTreasuryDeposit({ prepared, action: 'create', token: { mint: token.mint } })
         })()
       setBattles(currentBattles => [newBattle, ...currentBattles])
       notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
@@ -307,11 +338,7 @@ export default function Battles() {
       } else {
         joinedBattle = await (async () => {
           const prepared = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id })
-          const depositSignature = escrowConfigured ? await depositStake(prepared.stakeLamports, prepared.recentBlockhash) : null
-          return confirmBattleDeposit({
-            getAccessToken, walletAddress: wallet.address, action: 'join', token: { mint: token.mint },
-            depositIntentId: prepared.depositIntentId, depositSignature,
-          })
+          return completeTreasuryDeposit({ prepared, action: 'join', token: { mint: token.mint } })
         })()
       }
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
