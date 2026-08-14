@@ -4,7 +4,7 @@ import {
   compileTransaction,
   createNoopSigner,
   createTransactionMessage,
-  getBase58Encoder,
+  getBase58Decoder,
   getTransactionEncoder,
   pipe,
   setTransactionMessageFeePayer,
@@ -51,5 +51,5 @@ export async function sendEscrowDeposit({ wallet, lamports, signAndSendTransacti
   })
   return typeof result.signature === 'string'
     ? result.signature
-    : getBase58Encoder().encode(result.signature)
+    : getBase58Decoder().decode(result.signature)
 }

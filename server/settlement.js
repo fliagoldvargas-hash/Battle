@@ -6,7 +6,7 @@ import {
   createNoopSigner,
   createSolanaRpc,
   createTransactionMessage,
-  getBase58Encoder,
+  getBase58Decoder,
   getTransactionEncoder,
   pipe,
   setTransactionMessageFeePayer,
@@ -60,7 +60,7 @@ async function buildTransferTransaction({ rpc, source, payouts }) {
 function signatureFrom(result) {
   const value = result?.hash ?? result?.signature ?? result?.data?.hash ?? result?.data?.signature
   if (typeof value === 'string' && value) return value
-  if (value instanceof Uint8Array) return getBase58Encoder().encode(value)
+  if (value instanceof Uint8Array) return getBase58Decoder().decode(value)
   throw new Error('Privy did not return a Solana transaction signature.')
 }
 
