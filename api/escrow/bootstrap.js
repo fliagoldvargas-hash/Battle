@@ -16,7 +16,8 @@ function required(name) {
 
 function client() {
   const appId = process.env.PRIVY_APP_ID || process.env.VITE_PRIVY_APP_ID
-  return new PrivyClient({ appId: required(appId ? 'PRIVY_APP_ID' : 'VITE_PRIVY_APP_ID'), appSecret: required('PRIVY_APP_SECRET') })
+  if (!appId) throw Object.assign(new Error('Missing PRIVY_APP_ID.'), { status: 503 })
+  return new PrivyClient({ appId, appSecret: required('PRIVY_APP_SECRET') })
 }
 
 async function assertProtocolOwner(request, privy) {
