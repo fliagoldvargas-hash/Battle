@@ -2,6 +2,7 @@ import { Connection, PublicKey, SystemProgram, Transaction, TransactionInstructi
 
 const PROGRAM_ID = import.meta.env.VITE_ESCROW_PROGRAM_ID
 const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
+const TREASURY_MODE = import.meta.env.VITE_BATTLE_SETTLEMENT_MODE === 'treasury'
 const RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || (NETWORK === 'mainnet' ? 'https://api.mainnet-beta.solana.com' : 'https://api.devnet.solana.com')
 const CHAIN = `solana:${NETWORK}`
 const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
@@ -361,4 +362,6 @@ export async function refundExpiredOnchainBattle({ wallet, signAndSendTransactio
   return { signature, battleAddress: battle.toBase58(), vaultAddress: vault.toBase58(), battleId: hexFromBytes(id) }
 }
 
-export const isOnchainEscrowEnabled = () => Boolean(PROGRAM_ID)
+// Treasury-mode Mainnet battles are ordinary transfers to the Privy treasury.
+// An old public program-id variable must never divert that flow back to escrow.
+export const isOnchainEscrowEnabled = () => Boolean(PROGRAM_ID) && !TREASURY_MODE

@@ -398,6 +398,12 @@ export default function Battles() {
             <span>{NETWORK === 'devnet' ? 'Uses test SOL only. ' : ''}The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
           </div>
         )}
+        {TREASURY_MODE && (
+          <div className="devnet-notice" role="status">
+            <strong>MAINNET TREASURY</strong>
+            <span>Each deposit is verified on Solana before the battle activates. The winner and the locked platform fee are paid automatically after settlement.</span>
+          </div>
+        )}
       </div>
 
       <div className="battles-container">

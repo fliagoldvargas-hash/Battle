@@ -192,7 +192,7 @@ export default function Contract() {
           <div className="status-line status-line-neutral">
             <span aria-hidden="true">i</span>
             {loading
-              ? 'Checking the on-chain escrow configuration.'
+              ? treasuryMode ? 'Checking the Mainnet treasury configuration.' : 'Checking the on-chain escrow configuration.'
               : treasuryMode
                 ? escrowStatus?.configured
                   ? 'Mainnet Privy treasury is configured for automatic settlements.'
