@@ -1,5 +1,3 @@
-import { Connection, PublicKey } from '@solana/web3.js'
-
 const TOKEN_PROGRAM_IDS = [
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
   'TokenzQdYdY5rTyEFD9R29qn6R7b2hv3ih3dYY8kLAs',
@@ -13,6 +11,34 @@ export const DEFAULT_FEE_SCHEDULE = Object.freeze({
 })
 
 const rpcUrl = () => process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+const SOLANA_ADDRESS_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
+
+function rpcError(message, status = 503) {
+  return Object.assign(new Error(message), { status })
+}
+
+async function solanaRpc(method, params) {
+  let response
+  try {
+    response = await fetch(rpcUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: method, method, params }),
+      signal: AbortSignal.timeout(12_000),
+    })
+  } catch {
+    throw rpcError('The Solana RPC is unavailable. Please try again shortly.')
+  }
+  if (!response.ok) throw rpcError('The Solana RPC is unavailable. Please try again shortly.')
+  let payload
+  try {
+    payload = await response.json()
+  } catch {
+    throw rpcError('The Solana RPC returned an invalid response.')
+  }
+  if (payload.error) throw rpcError('The Solana RPC could not process this request.')
+  return payload.result
+}
 
 function number(value) {
   const parsed = Number(value)
@@ -51,13 +77,15 @@ export function feeForBalance(schedule, balance) {
 
 export async function holderBalance(walletAddress, mintAddress) {
   if (!mintAddress) return 0n
-  const owner = new PublicKey(walletAddress)
-  const mint = new PublicKey(mintAddress)
-  const connection = new Connection(rpcUrl(), 'confirmed')
-  const accounts = await Promise.all(TOKEN_PROGRAM_IDS.map(async (programId) => (
-    connection.getParsedTokenAccountsByOwner(owner, { mint, programId: new PublicKey(programId) })
-  )))
-  return accounts.flatMap((result) => result.value)
+  if (!SOLANA_ADDRESS_PATTERN.test(walletAddress) || !SOLANA_ADDRESS_PATTERN.test(mintAddress)) {
+    throw rpcError('The wallet or token address is invalid.', 400)
+  }
+  const accounts = (await solanaRpc('getTokenAccountsByOwner', [
+    walletAddress,
+    { mint: mintAddress },
+    { encoding: 'jsonParsed', commitment: 'confirmed' },
+  ]))?.value ?? []
+  return accounts
     .reduce((total, account) => total + BigInt(account.account.data.parsed.info.tokenAmount.amount), 0n)
 }
 
@@ -72,16 +100,16 @@ export async function validateFeeSchedule(input) {
   let mint = null
   let holderMintDecimals = 0
   if (holderMint) {
-    try {
-      mint = new PublicKey(holderMint)
-    } catch {
+    if (!SOLANA_ADDRESS_PATTERN.test(holderMint)) {
       throw Object.assign(new Error('The supplied CA is not a valid Solana mint address.'), { status: 400 })
     }
-    const account = await new Connection(rpcUrl(), 'confirmed').getAccountInfo(mint, 'confirmed')
-    if (!account || !TOKEN_PROGRAM_IDS.includes(account.owner.toBase58()) || account.data.length < 82 || account.data[45] !== 1) {
+    const account = (await solanaRpc('getAccountInfo', [holderMint, { encoding: 'base64', commitment: 'confirmed' }]))?.value
+    const data = typeof account?.data?.[0] === 'string' ? Buffer.from(account.data[0], 'base64') : null
+    if (!account || !TOKEN_PROGRAM_IDS.includes(account.owner) || !data || data.length < 82 || data[45] !== 1) {
       throw Object.assign(new Error('The supplied CA is not an initialized SPL or Token-2022 mint.'), { status: 400 })
     }
-    holderMintDecimals = account.data[44]
+    mint = holderMint
+    holderMintDecimals = data[44]
   }
   const tierMinimums = input?.tierMinimums?.map((value) => BigInt(value))
   const feeBps = input?.feeBps?.map(number)
@@ -93,7 +121,7 @@ export async function validateFeeSchedule(input) {
     || feeBps.some((value, index) => index > 0 && value > feeBps[index - 1])) {
     throw Object.assign(new Error('Holder tiers must ascend and fees must not increase by tier.'), { status: 400 })
   }
-  return { holderMint: mint?.toBase58() || null, holderMintDecimals, tierMinimums: tierMinimums.map(String), feeBps }
+  return { holderMint: mint || null, holderMintDecimals, tierMinimums: tierMinimums.map(String), feeBps }
 }
 
 export async function saveFeeSchedule(supabase, schedule, adminWallet) {

@@ -1,5 +1,4 @@
 import { PrivyClient } from '@privy-io/node'
-import { Connection } from '@solana/web3.js'
 import {
   address,
   appendTransactionMessageInstructions,
@@ -7,6 +6,7 @@ import {
   createNoopSigner,
   createSolanaRpc,
   createTransactionMessage,
+  getBase58Encoder,
   getTransactionEncoder,
   pipe,
   setTransactionMessageFeePayer,
@@ -60,7 +60,7 @@ async function buildTransferTransaction({ rpc, source, payouts }) {
 function signatureFrom(result) {
   const value = result?.hash ?? result?.signature ?? result?.data?.hash ?? result?.data?.signature
   if (typeof value === 'string' && value) return value
-  if (value instanceof Uint8Array) return Buffer.from(value).toString('base64')
+  if (value instanceof Uint8Array) return getBase58Encoder().encode(value)
   throw new Error('Privy did not return a Solana transaction signature.')
 }
 
@@ -92,13 +92,13 @@ function payoutFor(battle) {
   return { pot, fee, prize, winner: winnerWallet(battle) }
 }
 
-async function hasTreasuryBalance(connection, treasury, requiredLamports) {
-  const balance = await connection.getBalance(treasury, 'confirmed')
+async function hasTreasuryBalance(rpc, treasury, requiredLamports) {
+  const { value: balance } = await rpc.getBalance(address(treasury), { commitment: 'confirmed' }).send()
   // Keep a tiny margin for the network fee paid by the treasury wallet.
-  return balance >= requiredLamports + 20_000
+  return Number(balance) >= requiredLamports + 20_000
 }
 
-async function reconcileSubmitted(supabase, connection, network) {
+async function reconcileSubmitted(supabase, rpc, network) {
   const { data: pending, error } = await supabase.from('battles')
     .select('id,settlement_signature,settlement_reference_id')
     .eq('network', network)
@@ -110,7 +110,7 @@ async function reconcileSubmitted(supabase, connection, network) {
   const completed = []
   for (const battle of pending ?? []) {
     const signature = battle.settlement_signature
-    const status = (await connection.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0]
+    const status = (await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true }).send()).value[0]
     if (!status) continue
     if (status.err) {
       await supabase.from('battles').update({ escrow_state: 'review_required', escrow_error: 'settlement_transaction_failed', updated_at: new Date().toISOString() })
@@ -134,8 +134,8 @@ async function reconcileSubmitted(supabase, connection, network) {
 
 export async function settleFinishedBattles(supabase, limit = 1, network = 'mainnet') {
   const settlement = config()
-  const connection = new Connection(settlement.rpcUrl, 'confirmed')
-  const reconciled = await reconcileSubmitted(supabase, connection, network)
+  const rpc = createSolanaRpc(settlement.rpcUrl)
+  const reconciled = await reconcileSubmitted(supabase, rpc, network)
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
     .eq('network', network)
@@ -147,7 +147,6 @@ export async function settleFinishedBattles(supabase, limit = 1, network = 'main
   if (error) throw error
 
   const privy = new PrivyClient({ appId: settlement.appId, appSecret: settlement.appSecret })
-  const rpc = createSolanaRpc(settlement.rpcUrl)
   const submitted = []
   for (const battle of battles ?? []) {
     const referenceId = `battle-${battle.id}-settlement`
@@ -159,7 +158,7 @@ export async function settleFinishedBattles(supabase, limit = 1, network = 'main
 
     try {
       const payout = payoutFor(claimed)
-      if (!await hasTreasuryBalance(connection, settlement.treasury, payout.pot)) throw new Error('The treasury does not have enough finalized SOL to pay this battle.')
+      if (!await hasTreasuryBalance(rpc, settlement.treasury, payout.pot)) throw new Error('The treasury does not have enough finalized SOL to pay this battle.')
       const transaction = await buildTransferTransaction({
         rpc,
         source: settlement.treasury,
