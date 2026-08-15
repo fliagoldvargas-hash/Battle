@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
+import { Icon } from '../components/BrandMark'
 import {
   displayTokenAmount,
   formatFeePercent,
@@ -14,6 +15,60 @@ import './Contract.css'
 const EMPTY_PUBLIC_KEY = '11111111111111111111111111111111'
 const DEFAULT_MINIMUMS = ['1000', '10000', '100000', '1000000']
 const DEFAULT_FEES = ['100', '75', '50', '25', '10']
+const PLATFORM_FEE_WALLET = 'HokiRpvfevAAbeKEWuSRZzgwY1eR3YYQf9edoK9cQ5AN'
+const SOURCE_BASE = 'https://github.com/fliagoldvargas-hash/Battle/blob/main'
+
+const CODE_PROOFS = [
+  {
+    eyebrow: 'DEPOSIT PROOF',
+    title: 'Exact transfer or no battle',
+    file: 'server/escrow.js',
+    source: `${SOURCE_BASE}/server/escrow.js`,
+    lines: [
+      "instruction.parsed.info?.destination === config.treasury",
+      'instruction.parsed.info?.source === walletAddress',
+      'Number(instruction.parsed.info?.lamports) === Number(expectedLamports)',
+    ],
+  },
+  {
+    eyebrow: 'PAYOUT MATH',
+    title: 'The locked fee defines the split',
+    file: 'server/settlement.js',
+    source: `${SOURCE_BASE}/server/settlement.js`,
+    lines: [
+      'const fee = Math.floor((pot * feeBps) / 10_000)',
+      'const prize = pot - fee',
+      'return { pot, fee, prize, winner: winnerWallet(battle) }',
+    ],
+  },
+  {
+    eyebrow: 'ONE SETTLEMENT',
+    title: 'Winner and fee share one transaction',
+    file: 'server/settlement.js',
+    source: `${SOURCE_BASE}/server/settlement.js`,
+    lines: [
+      'payouts: [',
+      '  { wallet: payout.winner, amount: payout.prize },',
+      '  { wallet: settlement.feeTreasury, amount: payout.fee },',
+      ']',
+    ],
+  },
+  {
+    eyebrow: 'REPLAY GUARD',
+    title: 'The same settlement is not sent twice',
+    file: 'server/settlement.js',
+    source: `${SOURCE_BASE}/server/settlement.js`,
+    lines: [
+      'reference_id: referenceId,',
+      'idempotency_key: referenceId,',
+      ".is('settlement_signature', null)",
+    ],
+  },
+]
+
+const solscanAddress = (value, isDevnet) => (
+  value ? `https://solscan.io/account/${encodeURIComponent(value)}${isDevnet ? '?cluster=devnet' : ''}` : null
+)
 
 export default function Contract() {
   const { wallet, getAccessToken } = useWallet()
@@ -53,6 +108,7 @@ export default function Contract() {
           feeBps: result.feeBps || DEFAULT_FEES.map(Number),
         }
         setEscrowStatus({ configured: Boolean(treasury.configured), mode: 'treasury' })
+        setTreasuryDetails((current) => ({ ...current, ...treasury }))
         setHolderConfig(nextConfig)
         setProtocolAdmin(result.adminWallet || '')
         if (result.holderMint) {
@@ -179,93 +235,121 @@ export default function Contract() {
     }
   }
 
+  const treasuryAddress = treasuryDetails?.address || null
+  const networkLabel = isMainnet ? 'Solana Mainnet' : 'Solana Devnet'
+  const custodyLabel = treasuryMode ? 'Privy managed treasury' : 'On-chain escrow program'
+
   return (
     <section className="contract-section">
       <div className="page-header">
-        <h1 className="page-title">Protocol status</h1>
-        <p className="page-subtitle">Clear information about what this deployment can do today.</p>
+        <p className="transparency-kicker">Open books. Verifiable transfers.</p>
+        <h1 className="page-title">Transparency</h1>
+        <p className="page-subtitle">See where funds go, how payouts are calculated, and which guarantees the current code actually provides.</p>
       </div>
 
       <div className="contract-container">
-        <div className="contract-card animate-in">
-          <div className="contract-title">{treasuryMode ? 'Settlement treasury' : 'On-chain contract'}</div>
-          <div className="status-line status-line-neutral">
-            <span aria-hidden="true">i</span>
-            {loading
-              ? treasuryMode ? 'Checking the Mainnet treasury configuration.' : 'Checking the on-chain escrow configuration.'
-              : treasuryMode
-                ? escrowStatus?.configured
-                  ? 'Mainnet Privy treasury is configured for automatic settlements.'
-                  : 'Mainnet Privy treasury has not been provisioned yet.'
-              : escrowStatus?.configured
-                ? `${isMainnet ? 'Mainnet' : 'Devnet'} escrow program is configured and ready.`
-                : `${isMainnet ? 'Mainnet' : 'Devnet'} escrow deployment is not ready yet.`}
+        <div className="contract-card transparency-hero animate-in">
+          <div className="transparency-hero-copy">
+            <div className={`protocol-chip ${escrowStatus?.configured ? 'online' : 'pending'}`}><span /> {loading ? 'CHECKING LIVE CONFIGURATION' : escrowStatus?.configured ? 'SETTLEMENT SYSTEM ONLINE' : 'CONFIGURATION INCOMPLETE'}</div>
+            <h2>Follow every SOL.</h2>
+            <p>Player deposits and settlements are public Solana transactions. FLIPPEN verifies the exact sender, treasury destination and lamport amount before a battle is accepted.</p>
+            <div className="transparency-actions">
+              <a className="transparency-link primary" href="https://github.com/fliagoldvargas-hash/Battle" target="_blank" rel="noreferrer">
+                VIEW SOURCE <Icon name="external" size={16} />
+              </a>
+              {treasuryAddress && (
+                <a className="transparency-link" href={solscanAddress(treasuryAddress, isDevnet)} target="_blank" rel="noreferrer">
+                  OPEN TREASURY <Icon name="external" size={16} />
+                </a>
+              )}
+            </div>
           </div>
-          <p className="contract-copy">
-            {treasuryMode
-              ? 'Both player deposits are verified on Solana Mainnet and held by a dedicated Privy treasury. After the battle ends, an automated transaction pays the winner and the locked platform fee.'
-              : escrowStatus?.configured && isDevnet
-              ? 'Both player deposits are held by the Token Battle escrow program on Solana Devnet. Devnet SOL has no monetary value and this preview must not be used for real funds.'
-              : escrowStatus?.configured && isMainnet
-                ? 'Both player deposits are held by the Token Battle escrow program on Solana Mainnet. The oracle settles the battle on-chain after it ends, sending the locked fee and remaining pot in the same transaction.'
-                : 'No wallet deposit can be made from this deployment until its program and on-chain configuration have been initialized.'}
-          </p>
+          <div className="protocol-stamp" aria-label={`${networkLabel} settlement status`}>
+            <Icon name="protocol" size={36} />
+            <strong>{escrowStatus?.configured ? 'VERIFIED' : 'PENDING'}</strong>
+            <span>{networkLabel}</span>
+          </div>
+        </div>
+
+        <div className="protocol-facts animate-in stagger-2" aria-label="Protocol facts">
+          <div className="protocol-fact"><span>NETWORK</span><strong>{networkLabel}</strong></div>
+          <div className="protocol-fact"><span>CUSTODY</span><strong>{custodyLabel}</strong></div>
+          <div className="protocol-fact"><span>AUTO-PAYOUT CAP</span><strong>20 SOL / BATTLE</strong></div>
+          <div className="protocol-fact warning"><span>INDEPENDENT AUDIT</span><strong>NOT COMPLETED</strong></div>
         </div>
 
         <div className="contract-card animate-in stagger-2">
-          <div className="contract-title">Holder fee schedule</div>
-          <p className="contract-copy">The rate is chosen from the creator’s verified SPL-token balance when the battle is created and stored with the battle. A later balance or schedule change cannot alter it.</p>
-          <div className="holder-schedule" aria-busy={loading}>
-            {schedule.map((tier) => (
-              <div className="holder-tier" key={tier.label}>
-                <span>{tier.label}</span>
-                <strong>{tier.feeBps == null ? 'Not configured' : formatFeePercent(tier.feeBps)}</strong>
-              </div>
+          <div className="contract-heading-row">
+            <div>
+              <p className="contract-eyebrow">PUBLIC LEDGER</p>
+              <div className="contract-title">Wallets you can verify</div>
+            </div>
+            <Icon name="external" size={22} />
+          </div>
+          <p className="contract-copy">These are public addresses, not secrets. Open either one in Solscan to inspect balances and confirmed transfers directly.</p>
+          <div className="address-ledger">
+            <div className="address-row">
+              <div><span>SETTLEMENT TREASURY</span><strong>{treasuryAddress || (loading ? 'Loading public address…' : 'Not configured')}</strong></div>
+              {treasuryAddress && <a href={solscanAddress(treasuryAddress, isDevnet)} target="_blank" rel="noreferrer" aria-label="View settlement treasury on Solscan"><Icon name="external" size={18} /></a>}
+            </div>
+            <div className="address-row">
+              <div><span>PLATFORM FEE WALLET</span><strong>{PLATFORM_FEE_WALLET}</strong></div>
+              <a href={solscanAddress(PLATFORM_FEE_WALLET, isDevnet)} target="_blank" rel="noreferrer" aria-label="View platform fee wallet on Solscan"><Icon name="external" size={18} /></a>
+            </div>
+          </div>
+        </div>
+
+        <div className="contract-card animate-in stagger-2">
+          <p className="contract-eyebrow">SETTLEMENT PATH</p>
+          <div className="contract-title">What happens to the pot</div>
+          <div className="settlement-flow">
+            <div className="flow-step"><b>01</b><div><strong>Deposit</strong><span>Each wallet signs an exact SOL transfer.</span></div></div>
+            <div className="flow-step"><b>02</b><div><strong>Verify</strong><span>Finalized source, destination and amount are checked on-chain.</span></div></div>
+            <div className="flow-step"><b>03</b><div><strong>Decide</strong><span>The oracle compares Pump.fun performance to four decimals.</span></div></div>
+            <div className="flow-step"><b>04</b><div><strong>Settle</strong><span>Prize and locked fee are sent together, then linked on Solscan.</span></div></div>
+          </div>
+        </div>
+
+        <section className="code-proof-section animate-in stagger-3" aria-labelledby="code-proof-title">
+          <div className="code-proof-heading">
+            <div><p className="contract-eyebrow">READ THE RULES</p><h2 id="code-proof-title">Proof in the code.</h2></div>
+            <p>The snippets below are from the public backend that validates deposits and prepares settlements. Open each source file to inspect the complete implementation.</p>
+          </div>
+          <div className="code-proof-grid">
+            {CODE_PROOFS.map((proof) => (
+              <article className="code-proof" key={proof.title}>
+                <div className="code-proof-top"><span>{proof.eyebrow}</span><a href={proof.source} target="_blank" rel="noreferrer" aria-label={`Open ${proof.file} on GitHub`}><Icon name="external" size={16} /></a></div>
+                <h3>{proof.title}</h3>
+                <pre><code>{proof.lines.map((line, index) => <span key={`${proof.title}-${index}`}><i>{String(index + 1).padStart(2, '0')}</i>{line}</span>)}</code></pre>
+                <a className="code-file-link" href={proof.source} target="_blank" rel="noreferrer">{proof.file}</a>
+              </article>
             ))}
           </div>
-          {holderConfig?.initialized && holderConfig.holderMint !== EMPTY_PUBLIC_KEY ? (
-            <p className="contract-copy contract-copy-mono">Token CA: {holderConfig.holderMint}</p>
-          ) : (
-            <div className="status-line status-line-warning"><span aria-hidden="true">!</span>Holder discounts are not active yet. New battles use the standard 1% fee.</div>
-          )}
+        </section>
+
+        <div className="contract-card animate-in stagger-3">
+          <p className="contract-eyebrow">LOCKED AT CREATION</p>
+          <div className="contract-title">Holder fee schedule</div>
+          <p className="contract-copy">The creator’s verified SPL-token balance selects the rate when the battle is created. That fee is stored with the battle; later balance or schedule changes cannot rewrite it.</p>
+          <div className="holder-schedule" aria-busy={loading}>
+            {schedule.map((tier) => <div className="holder-tier" key={tier.label}><span>{tier.label}</span><strong>{tier.feeBps == null ? 'Not configured' : formatFeePercent(tier.feeBps)}</strong></div>)}
+          </div>
+          {holderConfig?.initialized && holderConfig.holderMint !== EMPTY_PUBLIC_KEY
+            ? <p className="contract-copy contract-copy-mono">Token CA: {holderConfig.holderMint}</p>
+            : <div className="status-line status-line-warning"><span aria-hidden="true">!</span>Holder discounts are not active yet. New battles use the standard 1% fee.</div>}
         </div>
 
         {configurationEnabled && isAdmin && (
-          <div className="contract-card animate-in stagger-3">
+          <div className="contract-card admin-contract-card animate-in stagger-3">
+            <p className="contract-eyebrow">OWNER CONTROLS</p>
             <div className="contract-title">Admin: treasury and holder token</div>
-            {treasuryMode && (
-              <>
-                <p className="contract-copy">Create the dedicated Privy Mainnet treasury once. Its owner is this Privy account; Vercel receives only a policy-limited signer, never a Solana private key.</p>
-                <button className="holder-admin-button" type="button" onClick={provisionTreasury} disabled={provisioningTreasury}>
-                  {provisioningTreasury ? 'PROVISIONING...' : 'PROVISION SECURE TREASURY'}
-                </button>
-                {treasuryDetails?.address && (
-                  <p className="contract-copy contract-copy-mono">Treasury: {treasuryDetails.address}<br />Wallet ID: {treasuryDetails.walletId}</p>
-                )}
-              </>
-            )}
-            {!holderConfig?.initialized && !treasuryMode ? (
-              <>
-                <p className="contract-copy">Create the dedicated on-chain configuration account once. This does not set a token CA and does not change any existing battle.</p>
-                <button className="holder-admin-button" type="button" onClick={initialize} disabled={saving}>
-                  {saving ? 'CONFIRMING...' : 'INITIALIZE HOLDER FEES'}
-                </button>
-              </>
-            ) : (
+            {treasuryMode && <><p className="contract-copy">The dedicated Privy treasury belongs to this Privy account. Vercel receives a policy-limited signer rather than an exportable Solana private key.</p><button className="holder-admin-button" type="button" onClick={provisionTreasury} disabled={provisioningTreasury}>{provisioningTreasury ? 'PROVISIONING...' : 'PROVISION SECURE TREASURY'}</button>{treasuryDetails?.address && <p className="contract-copy contract-copy-mono">Treasury: {treasuryDetails.address}{treasuryDetails.walletId && <><br />Wallet ID: {treasuryDetails.walletId}</>}</p>}</>}
+            {!holderConfig?.initialized && !treasuryMode ? <><p className="contract-copy">Create the dedicated on-chain configuration account once. This does not set a token CA or change existing battles.</p><button className="holder-admin-button" type="button" onClick={initialize} disabled={saving}>{saving ? 'CONFIRMING...' : 'INITIALIZE HOLDER FEES'}</button></> : (
               <form className="holder-form" onSubmit={saveSchedule}>
-                <label>Protocol token CA
-                  <input required value={mint} onChange={(event) => setMint(event.target.value.trim())} placeholder="Paste the SPL token mint address" />
-                </label>
+                <label>Protocol token CA<input required value={mint} onChange={(event) => setMint(event.target.value.trim())} placeholder="Paste the SPL token mint address" /></label>
                 <div className="holder-form-grid holder-form-head"><span>Minimum balance</span><span>Fee (basis points)</span></div>
-                {minimums.map((minimum, index) => (
-                  <div className="holder-form-grid" key={`tier-${index}`}>
-                    <input required inputMode="decimal" value={minimum} onChange={(event) => updateArrayValue(setMinimums, index, event.target.value)} aria-label={`Tier ${index + 1} token minimum`} />
-                    <input required inputMode="numeric" value={fees[index + 1]} onChange={(event) => updateArrayValue(setFees, index + 1, event.target.value)} aria-label={`Tier ${index + 1} fee basis points`} />
-                  </div>
-                ))}
-                <label>Fee without the token (basis points)
-                  <input required inputMode="numeric" value={fees[0]} onChange={(event) => updateArrayValue(setFees, 0, event.target.value)} />
-                </label>
+                {minimums.map((minimum, index) => <div className="holder-form-grid" key={`tier-${index}`}><input required inputMode="decimal" value={minimum} onChange={(event) => updateArrayValue(setMinimums, index, event.target.value)} aria-label={`Tier ${index + 1} token minimum`} /><input required inputMode="numeric" value={fees[index + 1]} onChange={(event) => updateArrayValue(setFees, index + 1, event.target.value)} aria-label={`Tier ${index + 1} fee basis points`} /></div>)}
+                <label>Fee without the token (basis points)<input required inputMode="numeric" value={fees[0]} onChange={(event) => updateArrayValue(setFees, 0, event.target.value)} /></label>
                 <p className="form-hint">100 basis points = 1%. Default schedule: 1%, 0.75%, 0.50%, 0.25%, 0.10%.</p>
                 <button className="holder-admin-button" disabled={saving}>{saving ? 'SAVING...' : 'SAVE HOLDER SCHEDULE'}</button>
               </form>
@@ -274,30 +358,17 @@ export default function Contract() {
         )}
 
         {configurationEnabled && wallet.connected && !isAdmin && (
-          <div className="contract-card animate-in stagger-3">
-            <div className="contract-title">Protocol administration</div>
-            <p className="contract-copy">
-              {protocolAdmin
-                ? <>The connected wallet <span className="contract-copy-mono">{wallet.address}</span> is not the configured protocol owner. Connect <span className="contract-copy-mono">{protocolAdmin}</span> to provision the treasury or change holder-token settings.</>
-                : 'Protocol-owner access has not been configured in this environment yet.'}
-            </p>
-          </div>
+          <div className="contract-card animate-in stagger-3"><div className="contract-title">Protocol administration</div><p className="contract-copy">{protocolAdmin ? <>The connected wallet <span className="contract-copy-mono">{wallet.address}</span> is not the configured protocol owner. Connect <span className="contract-copy-mono">{protocolAdmin}</span> to change protocol settings.</> : 'Protocol-owner access has not been configured in this environment yet.'}</p></div>
         )}
 
-        <div className="contract-card animate-in stagger-3">
-          <div className="contract-title">Settlement</div>
-          <ul className="protocol-list">
-            <li>Both players deposit SOL before a battle becomes active.</li>
-            <li>The oracle compares both Pump.fun market-cap changes to four decimals at settlement.</li>
-            <li>Settlement sends the fee locked for the battle and automatically pays the remaining pot to the winner after the battle ends.</li>
-            <li>If a payment cannot be confirmed, the battle is explicitly marked for manual review; treasury-mode battles do not expose an automatic refund button.</li>
-          </ul>
-        </div>
-
-        <div className="contract-card animate-in stagger-3">
-          <div className="contract-title">Security review</div>
-          <div className="status-line status-line-neutral"><span aria-hidden="true">i</span>No independent audit has been completed yet.</div>
-          <p className="contract-copy">Do not treat this protocol as audited or trustless. Mainnet settlements use a custodial Privy treasury and have not undergone an independent security audit.</p>
+        <div className="contract-card custody-disclosure animate-in stagger-3">
+          <div className="disclosure-icon"><Icon name="warning" size={26} /></div>
+          <div>
+            <p className="contract-eyebrow">CUSTODY DISCLOSURE</p>
+            <div className="contract-title">Transparent does not mean trustless.</div>
+            <p className="contract-copy">Mainnet currently uses a custodial Privy treasury controlled by the protocol owner, with a policy-limited backend signer for automatic settlements. The public code contains amount, destination, state and replay checks, but an owner-controlled service is not the same as immutable escrow.</p>
+            <p className="contract-copy"><strong>No independent security audit has been completed.</strong> Every user should verify transaction addresses and amounts in their wallet and on Solscan before using real SOL.</p>
+          </div>
         </div>
       </div>
     </section>
