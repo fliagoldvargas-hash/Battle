@@ -5,7 +5,7 @@ import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, refreshBattleDepositBlockhash, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
+import { cancelBattle, confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, refreshBattleDepositBlockhash, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
 import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, getOnchainStatus, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
 import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
@@ -61,6 +61,9 @@ export default function Battles() {
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
     setBattles(remoteBattles ?? [])
+    setViewBattle(current => current
+      ? (remoteBattles ?? []).find(battle => battle.id === current.id) ?? current
+      : current)
   }, [])
 
   useEffect(() => {
@@ -77,7 +80,7 @@ export default function Battles() {
     void load()
     const interval = setInterval(() => {
       void refreshBattles().catch(() => {})
-    }, 10_000)
+    }, 5_000)
 
     return () => {
       cancelled = true
@@ -351,20 +354,26 @@ export default function Battles() {
   }
 
   const handleCancel = async () => {
-    if (!viewBattle || !isOnchainEscrow) return
+    if (!viewBattle) return
     setIsSubmitting(true)
     try {
-      const onchain = await cancelOnchainBattle({
-        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
-        battleIdHex: viewBattle.onchainBattleId,
-      })
-      await syncOnchainEscrowAction({
-        getAccessToken, walletAddress: wallet.address,
-        body: { action: 'cancel', ...onchain },
-      })
+      if (isOnchainEscrow) {
+        const onchain = await cancelOnchainBattle({
+          wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+          battleIdHex: viewBattle.onchainBattleId,
+        })
+        await syncOnchainEscrowAction({
+          getAccessToken, walletAddress: wallet.address,
+          body: { action: 'cancel', ...onchain },
+        })
+      } else {
+        await cancelBattle({
+          getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id,
+        })
+      }
       setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
       setViewBattle(null)
-      notify('success', 'Battle Cancelled', `Your ${NETWORK_LABEL} stake has been returned to your wallet.`)
+      notify('success', 'Battle Cancelled', `Your ${NETWORK_LABEL} refund was sent back to your wallet.`)
     } catch (error) {
       notify('error', 'Could Not Cancel', error.message)
     } finally {
@@ -578,7 +587,7 @@ export default function Battles() {
             {(() => {
               const isCreator = wallet.connected && viewBattle.creatorAddress === wallet.address
               const isParticipant = isCreator || (wallet.connected && viewBattle.opponentAddress === wallet.address)
-              const canCancel = isOnchainEscrow && viewBattle.status === 'waiting' && isCreator
+              const canCancel = viewBattle.status === 'waiting' && isCreator && (isOnchainEscrow || TREASURY_MODE)
               const canRefund = isOnchainEscrow && viewBattle.status === 'active' && isParticipant
                 && viewBattle.endTime && currentTime >= viewBattle.endTime + REFUND_DELAY_SECONDS
               const refundAt = viewBattle.endTime ? new Date((viewBattle.endTime + REFUND_DELAY_SECONDS) * 1000).toLocaleString() : null
@@ -589,7 +598,7 @@ export default function Battles() {
                 <div className="bvd-symbol">{viewBattle.tokenA.symbol}</div>
                 {viewBattle.tokenA.perf !== undefined && (
                   <div className={`bvd-perf ${viewBattle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
-                    {viewBattle.tokenA.perf >= 0 ? '+' : ''}{viewBattle.tokenA.perf}%
+                    {viewBattle.tokenA.perf >= 0 ? '+' : ''}{Number(viewBattle.tokenA.perf).toFixed(4)}%
                   </div>
                 )}
                 <div className="bvd-mc">MC: {viewBattle.tokenA.mc}</div>
@@ -611,7 +620,7 @@ export default function Battles() {
                     <div className="bvd-symbol">{viewBattle.tokenB.symbol}</div>
                     {viewBattle.tokenB.perf !== undefined && (
                       <div className={`bvd-perf ${viewBattle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
-                        {viewBattle.tokenB.perf >= 0 ? '+' : ''}{viewBattle.tokenB.perf}%
+                        {viewBattle.tokenB.perf >= 0 ? '+' : ''}{Number(viewBattle.tokenB.perf).toFixed(4)}%
                       </div>
                     )}
                     <div className="bvd-mc">MC: {viewBattle.tokenB.mc}</div>
@@ -698,6 +707,9 @@ export default function Battles() {
                 </div>
                 <div className="leader-badge">
                   🏆 {viewBattle.tokenA.perf > viewBattle.tokenB.perf ? viewBattle.tokenA.symbol : viewBattle.tokenB.symbol} IS LEADING
+                </div>
+                <div className="live-price-stamp" role="status">
+                  <span className="live-dot" /> LIVE PUMP.FUN DATA · REFRESHES EVERY 5 SECONDS
                 </div>
               </>
             )}

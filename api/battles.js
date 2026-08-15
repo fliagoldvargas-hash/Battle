@@ -3,7 +3,8 @@ import { createClient } from '@supabase/supabase-js'
 import { getPumpFunToken } from '../server/pumpfun.js'
 import { verifyStakeTransfer } from '../server/escrow.js'
 import { quoteFeeForWallet } from '../server/holderFees.js'
-import { assertTreasuryReadyForDeposits } from '../server/settlement.js'
+import { assertTreasuryReadyForDeposits, cancelAndRefundWaitingBattle } from '../server/settlement.js'
+import { performancePercent } from '../server/processBattles.js'
 
 const LAMPORTS_PER_SOL = 1_000_000_000
 // Keep the public minimum exact in lamports so the UI, API and database agree.
@@ -12,6 +13,8 @@ const MAX_STAKE_LAMPORTS = 10_000_000_000
 const ALLOWED_DURATIONS = new Set([60, 300, 900, 1800, 3600, 14400])
 const DEPOSIT_INTENT_TTL_MS = 10 * 60 * 1000
 const SOLANA_MAINNET_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
+const LIVE_PRICE_CACHE_MS = 4_000
+const liveTokenCache = new Map()
 
 const send = (response, status, body) => response.status(status).json(body)
 const battleNetwork = () => process.env.BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
@@ -21,6 +24,42 @@ function publicBattle(battle) {
   if (!battle) return battle
   const { creator_privy_user_id: _creatorPrivyUserId, opponent_privy_user_id: _opponentPrivyUserId, ...publicFields } = battle
   return publicFields
+}
+
+async function getLiveToken(mint) {
+  const cached = liveTokenCache.get(mint)
+  if (cached && Date.now() - cached.loadedAt < LIVE_PRICE_CACHE_MS) return cached.token
+  const token = await getPumpFunToken(mint)
+  liveTokenCache.set(mint, { token, loadedAt: Date.now() })
+  return token
+}
+
+async function withLivePerformance(battles) {
+  const active = battles.filter((battle) => battle.status === 'active' && battle.token_a_mint && battle.token_b_mint)
+  const mints = [...new Set(active.flatMap((battle) => [battle.token_a_mint, battle.token_b_mint]))]
+  const entries = await Promise.all(mints.map(async (mint) => {
+    try {
+      return [mint, await getLiveToken(mint)]
+    } catch (error) {
+      console.warn('Unable to refresh live Pump.fun token', { mint, error: error.message })
+      return [mint, null]
+    }
+  }))
+  const tokens = new Map(entries)
+  const updatedAt = new Date().toISOString()
+
+  return battles.map((battle) => {
+    if (battle.status !== 'active') return battle
+    const tokenA = tokens.get(battle.token_a_mint)
+    const tokenB = tokens.get(battle.token_b_mint)
+    if (!tokenA || !tokenB) return battle
+    return {
+      ...battle,
+      token_a_change_pct: performancePercent(tokenA.marketCap, Number(battle.token_a_market_cap)),
+      token_b_change_pct: performancePercent(tokenB.marketCap, Number(battle.token_b_market_cap)),
+      live_updated_at: updatedAt,
+    }
+  })
 }
 
 function readBearerToken(request) {
@@ -355,7 +394,9 @@ export default async function handler(request, response) {
         .order('created_at', { ascending: false })
         .limit(50)
       if (error) throw error
-      return send(response, 200, { battles: battles.map(publicBattle), processed, settlements })
+      const liveBattles = await withLivePerformance(battles)
+      response.setHeader('Cache-Control', 'private, no-store, max-age=0')
+      return send(response, 200, { battles: liveBattles.map(publicBattle), processed, settlements })
     } catch (error) {
       console.error('Battle read API error', error)
       return send(response, 500, { error: 'Unable to load battles right now.' })
@@ -402,6 +443,20 @@ export default async function handler(request, response) {
         expiresAt: intent.expires_at,
         recentBlockhash: await getRecentBlockhash(),
       })
+    }
+
+    if (request.body?.action === 'cancel') {
+      if (typeof request.body?.battleId !== 'string') {
+        return send(response, 400, { error: 'Invalid battle.' })
+      }
+      const battle = await cancelAndRefundWaitingBattle({
+        supabase,
+        battleId: request.body.battleId,
+        userId: identity.userId,
+        walletAddress,
+        network: battleNetwork(),
+      })
+      return send(response, 200, { battle: publicBattle(battle) })
     }
 
     let battle

@@ -102,6 +102,15 @@ export function joinBattle(input) {
   })
 }
 
+export async function cancelBattle(input) {
+  const result = await postBattleAction({
+    getAccessToken: input.getAccessToken,
+    walletAddress: input.walletAddress,
+    body: { action: 'cancel', battleId: input.battleId },
+  })
+  return mapBattle(result.battle)
+}
+
 export async function confirmBattleDeposit(input) {
   for (let attempt = 0; attempt < 15; attempt += 1) {
     try {

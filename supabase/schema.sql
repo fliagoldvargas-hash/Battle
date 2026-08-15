@@ -47,7 +47,11 @@ create table if not exists public.battles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   check ((status = 'waiting' and opponent_wallet is null and opponent_privy_user_id is null and token_b_mint is null) or status <> 'waiting')
-  ,check (escrow_state in ('not_configured', 'awaiting_deposits', 'funded', 'settled', 'refunded', 'error'))
+  ,check (escrow_state in (
+    'not_configured', 'awaiting_deposits', 'funded', 'payment_pending',
+    'payment_submitted', 'refund_pending', 'refund_submitted', 'settled',
+    'refunded', 'review_required', 'error'
+  ))
 );
 
 create table if not exists public.battle_price_snapshots (

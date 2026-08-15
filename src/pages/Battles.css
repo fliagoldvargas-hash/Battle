@@ -75,6 +75,9 @@
 .progress-bar-wrap { height: 7px; margin: 16px 0; overflow: hidden; background: var(--surface-2); border: 1px solid rgba(243, 236, 221, .14); }
 .progress-bar { height: 100%; background: linear-gradient(90deg, var(--crimson) 0 50%, var(--blue) 50%); transition: width 1s linear; }
 .leader-badge { margin-bottom: 20px; padding: 10px; color: #07150b; background: var(--win); border: 1px solid var(--win); font: 700 .82rem/1 var(--font-display); letter-spacing: .13em; text-align: center; text-transform: uppercase; }
+.live-price-stamp { display: flex; align-items: center; justify-content: center; gap: 8px; margin: -10px 0 20px; color: var(--secondary); font: 700 .62rem/1.4 var(--font-mono); letter-spacing: .1em; text-align: center; }
+.live-price-stamp .live-dot { width: 7px; height: 7px; flex: 0 0 auto; background: var(--win); border-radius: 50%; box-shadow: 0 0 0 3px rgba(59, 198, 99, .14); animation: livePulse 1.8s ease-in-out infinite; }
+@keyframes livePulse { 0%, 100% { opacity: .45; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.12); } }
 .result-section { padding: 26px 0 16px; text-align: center; }
 .result-trophy { position: relative; width: 104px; height: 64px; margin: 0 auto 15px; font-size: 0; }
 .result-trophy::before { content: ''; position: absolute; inset: 9px 0; background: var(--gold); clip-path: polygon(0 30%, 31% 30%, 38% 0, 62% 0, 69% 30%, 100% 30%, 86% 70%, 69% 70%, 62% 100%, 38% 100%, 31% 70%, 14% 70%); filter: drop-shadow(4px 4px 0 #725713); }

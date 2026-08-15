@@ -18,13 +18,17 @@ export const mapBattle = (battle) => ({
   tokenA: {
     symbol: battle.token_a_symbol,
     mc: battle.token_a_market_cap ? `$${Number(battle.token_a_market_cap).toLocaleString()}` : '—',
-    perf: battle.token_a_change_pct == null ? undefined : Number(battle.token_a_change_pct),
+    perf: battle.status === 'active' && !battle.live_updated_at
+      ? undefined
+      : battle.token_a_change_pct == null ? undefined : Number(battle.token_a_change_pct),
   },
   tokenB: battle.token_b_mint
     ? {
         symbol: battle.token_b_symbol,
         mc: battle.token_b_market_cap ? `$${Number(battle.token_b_market_cap).toLocaleString()}` : '—',
-        perf: battle.token_b_change_pct == null ? undefined : Number(battle.token_b_change_pct),
+        perf: battle.status === 'active' && !battle.live_updated_at
+          ? undefined
+          : battle.token_b_change_pct == null ? undefined : Number(battle.token_b_change_pct),
       }
     : null,
   stake: Number(battle.stake_lamports) / LAMPORTS_PER_SOL,
@@ -47,6 +51,7 @@ export const mapBattle = (battle) => ({
   settlementSignature: battle.settlement_signature,
   escrowState: battle.escrow_state,
   feeBps: Number(battle.fee_bps ?? 25),
+  liveUpdatedAt: battle.live_updated_at,
 })
 
 export async function fetchPublicBattles() {

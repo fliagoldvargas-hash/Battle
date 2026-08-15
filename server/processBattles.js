@@ -1,6 +1,6 @@
 import { getPumpFunToken } from './pumpfun.js'
 
-function performancePercent(current, initial) {
+export function performancePercent(current, initial) {
   if (!Number.isFinite(current) || !Number.isFinite(initial) || initial <= 0) return null
   return Number((((current - initial) / initial) * 100).toFixed(4))
 }

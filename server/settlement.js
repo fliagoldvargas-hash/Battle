@@ -153,10 +153,142 @@ async function reconcileSubmitted(supabase, rpc, network) {
   return completed
 }
 
+async function reconcileSubmittedRefunds(supabase, rpc, network) {
+  const { data: pending, error } = await supabase.from('battles')
+    .select('id,settlement_signature')
+    .eq('network', network)
+    .eq('status', 'cancelled')
+    .eq('escrow_state', 'refund_submitted')
+    .not('settlement_signature', 'is', null)
+    .limit(25)
+  if (error) throw error
+
+  const completed = []
+  for (const battle of pending ?? []) {
+    const signature = battle.settlement_signature
+    const status = (await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true }).send()).value[0]
+    if (!status) continue
+    if (status.err) {
+      await supabase.from('battles').update({
+        escrow_state: 'review_required', escrow_error: 'refund_transaction_failed', updated_at: new Date().toISOString(),
+      }).eq('id', battle.id).eq('status', 'cancelled').eq('escrow_state', 'refund_submitted')
+      continue
+    }
+    if (status.confirmationStatus === 'confirmed' || status.confirmationStatus === 'finalized') {
+      const refundedAt = new Date().toISOString()
+      const { error: updateError } = await supabase.from('battles').update({
+        escrow_state: 'refunded', escrow_error: null, updated_at: refundedAt,
+      }).eq('id', battle.id).eq('status', 'cancelled').eq('escrow_state', 'refund_submitted')
+        .eq('settlement_signature', signature)
+      if (updateError) throw updateError
+      completed.push({ id: battle.id, signature, refund: true })
+    }
+  }
+  return completed
+}
+
+export async function cancelAndRefundWaitingBattle({ supabase, battleId, userId, walletAddress, network = 'mainnet' }) {
+  const settlement = config()
+  const rpc = createSolanaRpc(settlement.rpcUrl)
+
+  // An expired join reservation no longer owns the opponent seat. Active
+  // reservations deliberately block cancellation so creator and challenger
+  // can never both be told that they own the same deposited SOL.
+  const now = new Date().toISOString()
+  await supabase.from('battles').update({
+    join_reservation_token: null, join_reservation_wallet: null, join_reservation_expires_at: null,
+  }).eq('id', battleId).eq('network', network).eq('status', 'waiting')
+    .lt('join_reservation_expires_at', now)
+
+  const { data: battle, error: readError } = await supabase.from('battles').select('*')
+    .eq('id', battleId).eq('network', network).maybeSingle()
+  if (readError) throw readError
+  if (!battle || battle.creator_privy_user_id !== userId || battle.creator_wallet !== walletAddress) {
+    const error = new Error('Only the creator can cancel this battle.')
+    error.status = 403
+    throw error
+  }
+  if (battle.status !== 'waiting' || battle.escrow_state !== 'awaiting_deposits' || battle.opponent_wallet) {
+    const error = new Error('This battle can no longer be cancelled because a challenger already joined.')
+    error.status = 409
+    throw error
+  }
+  if (battle.join_reservation_token && new Date(battle.join_reservation_expires_at).getTime() > Date.now()) {
+    const error = new Error('A challenger is currently preparing to join. Try cancelling again after that request expires.')
+    error.status = 409
+    throw error
+  }
+
+  const amount = Number(battle.stake_lamports)
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10 * LAMPORTS_PER_SOL) {
+    throw new Error('The stored creator deposit cannot be refunded automatically.')
+  }
+  const referenceId = `battle-${battle.id}-creator-refund`
+  const { data: claimed, error: claimError } = await supabase.from('battles').update({
+    status: 'cancelled', escrow_state: 'refund_pending', settlement_reference_id: referenceId,
+    escrow_error: null, updated_at: now,
+  }).eq('id', battle.id).eq('network', network).eq('status', 'waiting')
+    .eq('escrow_state', 'awaiting_deposits').eq('creator_privy_user_id', userId)
+    .eq('creator_wallet', walletAddress).is('opponent_wallet', null).is('join_reservation_token', null)
+    .select('*').maybeSingle()
+  if (claimError) throw claimError
+  if (!claimed) {
+    const error = new Error('This battle changed while it was being cancelled. Refresh and try again.')
+    error.status = 409
+    throw error
+  }
+
+  let broadcastAttempted = false
+  try {
+    if (!await hasTreasuryBalance(rpc, settlement.treasury, amount)) {
+      throw new Error('The treasury cannot return this deposit automatically right now.')
+    }
+    const transaction = await buildTransferTransaction({
+      rpc,
+      source: settlement.treasury,
+      payouts: [{ wallet: walletAddress, amount }],
+    })
+    const privy = new PrivyClient({ appId: settlement.appId, appSecret: settlement.appSecret })
+    broadcastAttempted = true
+    const signature = await signAndSend({
+      privy, walletId: settlement.walletId, transaction, referenceId,
+      authorizationPrivateKey: settlement.authorizationPrivateKey,
+    })
+    const submittedAt = new Date().toISOString()
+    const { data: submitted, error: updateError } = await supabase.from('battles').update({
+      escrow_state: 'refund_submitted', settlement_signature: signature,
+      settlement_submitted_at: submittedAt, payout_lamports: amount, updated_at: submittedAt,
+    }).eq('id', claimed.id).eq('status', 'cancelled').eq('escrow_state', 'refund_pending')
+      .eq('settlement_reference_id', referenceId).select('*').single()
+    if (updateError) throw updateError
+    return submitted
+  } catch (error) {
+    console.error('Treasury refund failed', { battleId: claimed.id, error })
+    if (!broadcastAttempted) {
+      // No transaction could have left Privy, so it is safe to reopen the
+      // battle instead of trapping a creator behind a review-only state.
+      await supabase.from('battles').update({
+        status: 'waiting', escrow_state: 'awaiting_deposits', settlement_reference_id: null,
+        escrow_error: null, updated_at: new Date().toISOString(),
+      }).eq('id', claimed.id).eq('status', 'cancelled').eq('escrow_state', 'refund_pending')
+    } else {
+      // A network timeout after submission is ambiguous. Never send a second
+      // refund blindly; keep the deterministic Privy reference for review.
+      await supabase.from('battles').update({
+        escrow_state: 'review_required', escrow_error: 'refund_requires_review', updated_at: new Date().toISOString(),
+      }).eq('id', claimed.id).eq('status', 'cancelled').eq('escrow_state', 'refund_pending')
+    }
+    throw error
+  }
+}
+
 export async function settleFinishedBattles(supabase, limit = 1, network = 'mainnet') {
   const settlement = config()
   const rpc = createSolanaRpc(settlement.rpcUrl)
-  const reconciled = await reconcileSubmitted(supabase, rpc, network)
+  const [reconciled, refunded] = await Promise.all([
+    reconcileSubmitted(supabase, rpc, network),
+    reconcileSubmittedRefunds(supabase, rpc, network),
+  ])
   const { data: battles, error } = await supabase.from('battles')
     .select('*')
     .eq('network', network)
@@ -215,7 +347,7 @@ export async function settleFinishedBattles(supabase, limit = 1, network = 'main
       submitted.push({ id: claimed.id, error: 'settlement_requires_review' })
     }
   }
-  return [...reconciled, ...submitted]
+  return [...reconciled, ...refunded, ...submitted]
 }
 
 export const settlementLimitLamports = MAX_PAYOUT_LAMPORTS
