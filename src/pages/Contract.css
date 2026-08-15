@@ -1,209 +1,35 @@
-/* ─────────────────────────────────────────────
-   CONTRACT / PROTOCOL PAGE
-   ───────────────────────────────────────────── */
-.contract-section {
-  padding-top: 68px;
-  min-height: 100vh;
-}
-
-.contract-container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 0 var(--page-gutter) 5rem;
-}
-
-/* ─── Card ─── */
-.contract-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 2rem;
-  margin-bottom: 1.25rem;
-  position: relative;
-  overflow: hidden;
-  transition: border-color var(--motion-normal);
-}
-.contract-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(168,85,247,.2), transparent);
-  pointer-events: none;
-}
-.contract-card:hover { border-color: var(--border-strong); }
-
-/* ─── Title ─── */
-.contract-title {
-  font-family: var(--font-display);
-  font-size: 1.38rem;
-  font-weight: 700;
-  margin-bottom: .85rem;
-  letter-spacing: .02em;
-  color: var(--text-primary);
-}
-
-/* ─── Body copy ─── */
-.contract-copy {
-  color: var(--text-secondary);
-  font-size: .92rem;
-  line-height: 1.68;
-  margin: .85rem 0 0;
-}
-.contract-copy-mono {
-  font-family: var(--font-mono);
-  font-size: .76rem;
-  overflow-wrap: anywhere;
-  color: var(--muted);
-}
-
-/* ─── Status line ─── */
-.status-line {
-  display: flex;
-  align-items: center;
-  gap: .65rem;
-  padding: .82rem 1rem;
-  border-radius: var(--radius-sm);
-  font-size: .88rem;
-  font-weight: 600;
-}
-.status-line span {
-  display: inline-grid;
-  place-items: center;
-  width: 1.28rem; height: 1.28rem;
-  border-radius: 50%;
-  font-family: var(--font-mono);
-  font-size: .74rem;
-  flex-shrink: 0;
-}
-.status-line-warning {
-  background: rgba(251, 191, 36, .08);
-  border: 1px solid rgba(251, 191, 36, .3);
-  color: var(--gold);
-}
-.status-line-warning span { background: rgba(251, 191, 36, .18); }
-
-.status-line-neutral {
-  background: var(--card2);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
-}
-.status-line-neutral span { background: var(--violet-glow); color: var(--violet); }
-
-/* ─── Protocol list ─── */
-.protocol-list {
-  margin: .85rem 0 0;
-  padding-left: 1.25rem;
-  color: var(--text-secondary);
-  line-height: 1.85;
-  font-size: .92rem;
-}
-.protocol-list li { margin-bottom: .25rem; }
-
-/* ─── Holder schedule ─── */
-.holder-schedule {
-  margin: 1.1rem 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-}
-.holder-tier {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  padding: .78rem 1rem;
-  color: var(--text-secondary);
-  border-bottom: 1px solid var(--border);
-  font-size: .88rem;
-  transition: background var(--motion-fast);
-}
-.holder-tier:hover { background: rgba(255,255,255,.02); }
+.contract-section { min-height: 100vh; padding-top: 68px; }
+.contract-container { max-width: 960px; margin: 0 auto; padding: 0 var(--page-gutter) 80px; }
+.contract-card { position: relative; margin-bottom: 18px; padding: 28px; overflow: hidden; background: var(--surface); border: 1px solid rgba(243, 236, 221, .16); border-radius: 7px; box-shadow: 6px 6px 0 rgba(0, 0, 0, .45); }
+.contract-card::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--gold); }
+.contract-card:nth-child(2n)::before { background: var(--crimson); }
+.contract-title { margin-bottom: 12px; color: var(--primary); font: 700 1.5rem/1 var(--font-display); letter-spacing: .035em; text-transform: uppercase; }
+.contract-copy { margin: 12px 0 0; color: var(--secondary); font-size: .9rem; line-height: 1.7; }
+.contract-copy-mono { color: var(--gold); font-family: var(--font-mono); font-size: .75rem; overflow-wrap: anywhere; }
+.status-line { position: relative; display: flex; align-items: center; gap: 10px; padding: 13px 15px 13px 22px; overflow: hidden; border-radius: 4px; font-size: .84rem; font-weight: 600; }
+.status-line::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 7px; }
+.status-line span { display: inline-grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; border: 1px solid currentColor; border-radius: 50%; font: 700 .72rem/1 var(--font-mono); }
+.status-line-warning { color: var(--gold); background: rgba(232, 185, 62, .07); border: 1px solid rgba(232, 185, 62, .36); }
+.status-line-warning::before { background: repeating-linear-gradient(-45deg, var(--gold) 0 6px, var(--canvas) 6px 12px); }
+.status-line-neutral { color: var(--secondary); background: var(--surface-2); border: 1px solid rgba(243, 236, 221, .16); }
+.status-line-neutral::before { background: var(--blue); }
+.status-line-neutral span { color: var(--blue); }
+.protocol-list { margin: 13px 0 0; padding-left: 22px; color: var(--secondary); font-size: .9rem; line-height: 1.85; }
+.protocol-list li { margin-bottom: 5px; }
+.protocol-list li::marker { color: var(--crimson); }
+.holder-schedule { margin: 18px 0; overflow: hidden; border: 1px solid rgba(243, 236, 221, .18); border-radius: 5px; }
+.holder-tier { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 16px; color: var(--secondary); border-bottom: 1px solid rgba(243, 236, 221, .12); font-size: .86rem; transition: background var(--transition-fast); }
+.holder-tier:hover { background: rgba(232, 185, 62, .06); }
 .holder-tier:last-child { border-bottom: 0; }
-.holder-tier strong {
-  color: var(--green);
-  font-family: var(--font-mono);
-  font-size: .86rem;
-  font-weight: 700;
-}
-
-/* ─── Admin form ─── */
-.holder-form {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1rem;
-}
-.holder-form label {
-  display: grid;
-  gap: .45rem;
-  color: var(--text-secondary);
-  font-size: .84rem;
-  font-weight: 500;
-}
-.holder-form input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: .72rem .88rem;
-  color: var(--text);
-  background: var(--void);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: .84rem;
-  outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-.holder-form input:focus {
-  border-color: var(--violet-dim);
-  box-shadow: 0 0 0 3px rgba(123,47,255,.12);
-}
-.holder-form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .75rem;
-}
-.holder-form-head {
-  color: var(--muted);
-  font-size: .76rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: .08em;
-}
-
-/* ─── Admin action button ─── */
-.holder-admin-button {
-  width: fit-content;
-  padding: .75rem 1.25rem;
-  color: #080c14;
-  background: var(--green);
-  border: 0;
-  border-radius: var(--radius-sm);
-  font: 800 .84rem/1 var(--font-body);
-  letter-spacing: .05em;
-  cursor: pointer;
-  transition: transform var(--transition-fast), box-shadow var(--transition-fast), filter var(--transition-fast);
-  box-shadow: 0 4px 16px rgba(74,222,128,.2);
-}
-.holder-admin-button:hover {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(74,222,128,.3);
-}
+.holder-tier strong { color: var(--win); font: 700 .85rem/1 var(--font-mono); }
+.holder-form { display: grid; gap: 16px; margin-top: 18px; }
+.holder-form label { display: grid; gap: 7px; color: var(--secondary); font-size: .82rem; font-weight: 600; }
+.holder-form input { box-sizing: border-box; width: 100%; min-height: 45px; padding: 10px 13px; color: var(--primary); background: var(--canvas); border: 1px solid rgba(243, 236, 221, .2); border-radius: 4px; outline: none; font: 500 .82rem/1 var(--font-mono); transition: border-color var(--transition-fast), box-shadow var(--transition-fast); }
+.holder-form input:focus { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(232, 185, 62, .18); }
+.holder-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.holder-form-head { color: var(--secondary); font-size: .72rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+.holder-admin-button { width: fit-content; min-height: 44px; padding: 10px 18px; color: #07150b; background: var(--win); border: 1px solid var(--win); border-radius: 4px; box-shadow: 4px 4px 0 #155b28; font: 800 .82rem/1 var(--font-display); letter-spacing: .07em; text-transform: uppercase; cursor: pointer; transition: transform var(--transition-fast), box-shadow var(--transition-fast); }
+.holder-admin-button:hover { transform: translate(-1px, -1px); box-shadow: 6px 6px 0 #155b28; }
 .holder-admin-button:disabled { cursor: wait; opacity: .55; }
-
-/* Hint (reused from Battles) */
-.form-hint {
-  margin: .45rem 0 0;
-  color: var(--muted);
-  font-size: .76rem;
-  line-height: 1.45;
-}
-
-/* ─────────────────────────────────────────────
-   RESPONSIVE
-   ───────────────────────────────────────────── */
-@media (max-width: 560px) {
-  .holder-form-grid { grid-template-columns: 1fr; }
-  .holder-form-head { display: none; }
-  .contract-card { padding: 1.25rem; }
-}
+.form-hint { margin: 7px 0 0; color: var(--secondary); font-size: .74rem; line-height: 1.5; }
+@media (max-width: 560px) { .holder-form-grid { grid-template-columns: 1fr; } .holder-form-head { display: none; } .contract-card { padding: 22px 18px; } }

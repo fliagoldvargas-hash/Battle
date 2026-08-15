@@ -17,3 +17,10 @@ No external UI component library was copied into FLIPPEN. Existing React compone
 - Origin: local project components
 - Components: navigation, modal, notifications, battle cards, SVG icon set and crown mark
 - Changes: restyled and accessibility behavior strengthened; no third-party component source copied.
+
+## Fight Card visual system
+
+- Origin: project-specific CSS and existing local React markup
+- Type sources: Google Fonts — Alfa Slab One, Oswald, Inter and IBM Plex Mono
+- Changes: warm-black canvas, cream paper panels, red/blue fighter corners, gold score medallions, hard-offset shadows, ticket edges and scoreboard layouts
+- Constraint: presentation layer only; no routes, component interfaces, state, data attributes or product flows were changed.
