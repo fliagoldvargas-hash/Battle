@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { fetchLeaderboard } from '../services/analytics'
 import { notify } from '../components/notificationService'
+import { CrownMark } from '../components/BrandMark'
 import './Leaderboard.css'
 
 export default function Leaderboard() {
@@ -19,27 +20,20 @@ export default function Leaderboard() {
     return ''
   }
 
-  const getMedal = (rank) => {
-    if (rank === 1) return '🥇'
-    if (rank === 2) return '🥈'
-    if (rank === 3) return '🥉'
-    return `#${rank}`
-  }
-
   return (
-    <section className="leaderboard-section">
+    <section className="page-shell leaderboard-section">
       <div className="page-header">
-        <h1 className="page-title">🏆 Leaderboard</h1>
-        <p className="page-subtitle">Top battle warriors by wins and win rate</p>
+        <p className="page-kicker">The crown table</p>
+        <h1 className="page-title">Top of the arena.</h1>
+        <p className="page-subtitle">Ranked by real wins and win rate across settled FLIPPEN battles.</p>
       </div>
 
       <div className="leaderboard-container">
-        {/* Top 3 podium */}
         <div className="podium">
           {leaderboard.slice(0, 3).map(entry => (
             <div key={entry.rank} className={`podium-card podium-${entry.rank}`}>
-              <div className="podium-medal">{getMedal(entry.rank)}</div>
-              <div className="podium-rank-badge">{getRankClass(entry.rank).toUpperCase()}</div>
+              <div className="podium-medal">{entry.rank === 1 ? <CrownMark size={58} /> : <span className="mono">#{entry.rank}</span>}</div>
+              <div className="podium-rank-badge">RANK {entry.rank}</div>
               <div className="podium-player">{entry.player}</div>
               <div className="podium-stats">
                 <div className="podium-stat">
@@ -56,7 +50,6 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {/* Full table */}
         <div className="leaderboard-table">
           <div className="lb-header">
             <div>#</div>
@@ -72,7 +65,7 @@ export default function Leaderboard() {
               style={{ animationDelay: `${i * 0.05}s` }}
             >
               <div className={`lb-rank ${getRankClass(entry.rank)}`}>
-                {getMedal(entry.rank)}
+                #{entry.rank}
               </div>
               <div className="lb-player">{entry.player}</div>
               <div className="lb-wins">{entry.wins}</div>

@@ -64,14 +64,18 @@ export function WalletProvider({ children }) {
   }), [activeWallet, authenticated])
 
   const connect = useCallback(() => {
-    if (!privyReady || !walletsReady) {
+    if (!privyReady) {
       notify('info', 'Wallet Loading', 'Privy is still preparing wallet connections')
       return
     }
 
     if (authenticated && activeWallet) return
 
-    const connectedSolanaWallet = wallets.find((connectedWallet) => connectedWallet.chainType === 'solana') ?? wallets[0]
+    // Privy can open the wallet selector while browser extension discovery is
+    // still running, so do not block a deliberate connection on walletsReady.
+    const connectedSolanaWallet = walletsReady
+      ? (wallets.find((connectedWallet) => connectedWallet.chainType === 'solana') ?? wallets[0])
+      : null
     if (connectedSolanaWallet) {
       void authenticateSolanaWallet(connectedSolanaWallet)
       return
@@ -103,7 +107,7 @@ export function WalletProvider({ children }) {
       depositStake,
       escrowConfigured,
       getAccessToken,
-      isReady: privyReady && walletsReady,
+      isReady: privyReady,
       isConfigured: true,
     }}>
       {children}

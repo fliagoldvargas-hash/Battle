@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useWallet } from '../context/useWallet'
 import { fetchWalletStats } from '../services/analytics'
 import { notify } from '../components/notificationService'
+import { CrownMark, Icon } from '../components/BrandMark'
 import './Profile.css'
 
 export default function Profile() {
@@ -19,14 +20,15 @@ export default function Profile() {
 
   if (!wallet.connected) {
     return (
-      <section className="profile-section">
+      <section className="page-shell profile-section">
         <div className="page-header">
-          <h1 className="page-title">👤 Profile</h1>
-          <p className="page-subtitle">Your battle statistics and history</p>
+          <p className="page-kicker">Your arena record</p>
+          <h1 className="page-title">Profile</h1>
+          <p className="page-subtitle">Your battle statistics, wallet identity and settled history.</p>
         </div>
         <div className="profile-container">
           <div className="empty-state">
-            <div className="empty-icon">🔌</div>
+            <Icon name="wallet" size={46} />
             <div className="empty-title">Connect your wallet to view profile</div>
             <p className="empty-text">Your stats and battle history will appear here.</p>
           </div>
@@ -36,23 +38,22 @@ export default function Profile() {
   }
 
   return (
-    <section className="profile-section">
+    <section className="page-shell profile-section">
       <div className="page-header">
-        <h1 className="page-title">👤 Profile</h1>
-        <p className="page-subtitle">Your battle statistics and history</p>
+        <p className="page-kicker">Your arena record</p>
+        <h1 className="page-title">Profile</h1>
+        <p className="page-subtitle">Performance, battle history and capital deployed from this wallet.</p>
       </div>
 
       <div className="profile-container">
         <div className="profile-card animate-in">
           <div className="profile-header">
-            <div className="profile-avatar">
-              {wallet.address.slice(0, 2).toUpperCase()}
-            </div>
+            <div className="profile-avatar"><CrownMark size={38} /></div>
             <div>
               <div className="profile-address">
                 {wallet.address.slice(0, 8)}...{wallet.address.slice(-8)}
               </div>
-              <div className="profile-since">Battle Warrior since August 2026</div>
+              <div className="profile-since">Connected Solana wallet</div>
             </div>
           </div>
           <div className="stats-grid">
@@ -102,6 +103,7 @@ export default function Profile() {
                 </div>
               </div>
             ))}
+            {stats && !stats.history?.length && <div className="history-empty">No settled battles for this wallet yet.</div>}
           </div>
         </div>
       </div>

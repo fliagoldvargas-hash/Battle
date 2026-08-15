@@ -1,19 +1,21 @@
 import './Contract.css'
+import { Icon } from '../components/BrandMark'
 
 export default function Contract() {
   return (
-    <section className="contract-section">
+    <section className="page-shell contract-section">
       <div className="page-header">
-        <h1 className="page-title">Protocol status</h1>
-        <p className="page-subtitle">Clear information about how Token Battle settles today.</p>
+        <p className="page-kicker">Protocol & custody</p>
+        <h1 className="page-title">Know what settles the fight.</h1>
+        <p className="page-subtitle">Plain-language information about FLIPPEN custody, settlement and current security posture.</p>
       </div>
 
       <div className="contract-container">
         <div className="contract-card animate-in">
           <div className="contract-title">On-chain contract</div>
           <div className="status-line status-line-warning">
-            <span aria-hidden="true">!</span>
-            No Token Battle smart contract is deployed.
+            <Icon name="warning" size={20} />
+            No FLIPPEN smart contract is deployed.
           </div>
           <p className="contract-copy">
             Battles currently use a server-managed Solana treasury. Deposits and payouts are signed through Privy and recorded on Solana.
@@ -33,7 +35,7 @@ export default function Contract() {
         <div className="contract-card animate-in stagger-3">
           <div className="contract-title">Security review</div>
           <div className="status-line status-line-neutral">
-            <span aria-hidden="true">i</span>
+            <Icon name="protocol" size={20} />
             No independent audit has been completed yet.
           </div>
           <p className="contract-copy">

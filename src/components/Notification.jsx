@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { setNotificationHandler } from './notificationService'
+import { Icon } from './BrandMark'
 import './Notification.css'
 
 export default function NotificationContainer() {
@@ -19,12 +20,10 @@ export default function NotificationContainer() {
   }, [addNotification])
 
   return (
-    <div className="notification-container">
+    <div className="notification-container" aria-live="polite" aria-atomic="false">
       {notifications.map(n => (
         <div key={n.id} className={`notification show ${n.type}`}>
-          <span className="notification-icon">
-            {n.type === 'success' ? '✓' : n.type === 'error' ? '✕' : 'ℹ'}
-          </span>
+          <span className="notification-icon"><Icon name={n.type === 'success' ? 'check' : n.type === 'error' ? 'close' : 'protocol'} size={17} /></span>
           <div className="notification-content">
             <div className="notification-title">{n.title}</div>
             <div className="notification-msg">{n.message}</div>
