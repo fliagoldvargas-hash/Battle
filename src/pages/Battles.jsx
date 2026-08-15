@@ -126,7 +126,11 @@ export default function Battles() {
 
   const filteredBattles = useMemo(() => {
     let list = [...battles]
-    if (filter !== 'all') list = list.filter(b => b.status === filter)
+    if (filter === 'waiting') list = list.filter(battle => battle.status === 'waiting')
+    if (filter === 'active') list = list.filter(battle => battle.status === 'active')
+    if (filter === 'finished') {
+      list = list.filter(battle => battle.status === 'finished' || battle.status === 'settled')
+    }
     if (search) {
       const s = search.toLowerCase()
       list = list.filter(b =>
