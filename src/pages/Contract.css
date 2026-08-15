@@ -69,6 +69,7 @@
 .code-proof:nth-child(4) { border-top-color: var(--win); }
 .code-proof-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .code-proof-top > span { color: var(--gold); font: 700 .57rem/1 var(--font-mono); letter-spacing: .14em; }
+.code-proof-top > .code-proof-label { color: var(--secondary); font-size: .52rem; letter-spacing: .1em; }
 .code-proof-top a { color: var(--secondary); }
 .code-proof-top a:hover { color: var(--gold); }
 .code-proof h3 { min-height: 46px; margin: 14px 0; color: var(--primary); font: 700 1.05rem/1.2 var(--font-display); letter-spacing: .025em; text-transform: uppercase; }

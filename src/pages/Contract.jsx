@@ -16,14 +16,12 @@ const EMPTY_PUBLIC_KEY = '11111111111111111111111111111111'
 const DEFAULT_MINIMUMS = ['1000', '10000', '100000', '1000000']
 const DEFAULT_FEES = ['100', '75', '50', '25', '10']
 const PLATFORM_FEE_WALLET = 'HokiRpvfevAAbeKEWuSRZzgwY1eR3YYQf9edoK9cQ5AN'
-const SOURCE_BASE = 'https://github.com/fliagoldvargas-hash/Battle/blob/main'
 
 const CODE_PROOFS = [
   {
     eyebrow: 'DEPOSIT PROOF',
     title: 'Exact transfer or no battle',
     file: 'server/escrow.js',
-    source: `${SOURCE_BASE}/server/escrow.js`,
     lines: [
       "instruction.parsed.info?.destination === config.treasury",
       'instruction.parsed.info?.source === walletAddress',
@@ -34,7 +32,6 @@ const CODE_PROOFS = [
     eyebrow: 'PAYOUT MATH',
     title: 'The locked fee defines the split',
     file: 'server/settlement.js',
-    source: `${SOURCE_BASE}/server/settlement.js`,
     lines: [
       'const fee = Math.floor((pot * feeBps) / 10_000)',
       'const prize = pot - fee',
@@ -45,7 +42,6 @@ const CODE_PROOFS = [
     eyebrow: 'ONE SETTLEMENT',
     title: 'Winner and fee share one transaction',
     file: 'server/settlement.js',
-    source: `${SOURCE_BASE}/server/settlement.js`,
     lines: [
       'payouts: [',
       '  { wallet: payout.winner, amount: payout.prize },',
@@ -57,7 +53,6 @@ const CODE_PROOFS = [
     eyebrow: 'REPLAY GUARD',
     title: 'The same settlement is not sent twice',
     file: 'server/settlement.js',
-    source: `${SOURCE_BASE}/server/settlement.js`,
     lines: [
       'reference_id: referenceId,',
       'idempotency_key: referenceId,',
@@ -254,8 +249,8 @@ export default function Contract() {
             <h2>Follow every SOL.</h2>
             <p>Player deposits and settlements are public Solana transactions. FLIPPEN verifies the exact sender, treasury destination and lamport amount before a battle is accepted.</p>
             <div className="transparency-actions">
-              <a className="transparency-link primary" href="https://github.com/fliagoldvargas-hash/Battle" target="_blank" rel="noreferrer">
-                VIEW SOURCE <Icon name="external" size={16} />
+              <a className="transparency-link primary" href="#code-proof-title">
+                VIEW CODE BELOW <Icon name="chevronDown" size={16} />
               </a>
               {treasuryAddress && (
                 <a className="transparency-link" href={solscanAddress(treasuryAddress, isDevnet)} target="_blank" rel="noreferrer">
@@ -313,15 +308,15 @@ export default function Contract() {
         <section className="code-proof-section animate-in stagger-3" aria-labelledby="code-proof-title">
           <div className="code-proof-heading">
             <div><p className="contract-eyebrow">READ THE RULES</p><h2 id="code-proof-title">Proof in the code.</h2></div>
-            <p>The snippets below are from the public backend that validates deposits and prepares settlements. Open each source file to inspect the complete implementation.</p>
+            <p>These implementation excerpts show the checks used to validate deposits and prepare settlements. File labels identify the backend area represented by each rule.</p>
           </div>
           <div className="code-proof-grid">
             {CODE_PROOFS.map((proof) => (
               <article className="code-proof" key={proof.title}>
-                <div className="code-proof-top"><span>{proof.eyebrow}</span><a href={proof.source} target="_blank" rel="noreferrer" aria-label={`Open ${proof.file} on GitHub`}><Icon name="external" size={16} /></a></div>
+                <div className="code-proof-top"><span>{proof.eyebrow}</span><span className="code-proof-label">INTERNAL EXCERPT</span></div>
                 <h3>{proof.title}</h3>
                 <pre><code>{proof.lines.map((line, index) => <span key={`${proof.title}-${index}`}><i>{String(index + 1).padStart(2, '0')}</i>{line}</span>)}</code></pre>
-                <a className="code-file-link" href={proof.source} target="_blank" rel="noreferrer">{proof.file}</a>
+                <span className="code-file-link">{proof.file}</span>
               </article>
             ))}
           </div>
