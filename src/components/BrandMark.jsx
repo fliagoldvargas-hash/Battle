@@ -1,8 +1,9 @@
 export function CrownMark({ size = 40, title = 'FLIPPEN crown' }) {
   return (
     <svg className="crown-mark" width={size} height={size} viewBox="0 0 64 64" role="img" aria-label={title}>
-      <path d="M5 18 24 32l8-24 8 24 19-14-9 34H14L5 18Z" fill="currentColor" />
-      <path d="M17 45h30l-2 7H19l-2-7Z" fill="currentColor" opacity=".68" />
+      <path d="M3 13 20 25l7 19H10L3 13Z" fill="currentColor" />
+      <path d="M32 3 43 25 32 45 21 25 32 3Z" fill="currentColor" />
+      <path d="m61 13-7 31H37l7-19 17-12Z" fill="currentColor" />
     </svg>
   )
 }
