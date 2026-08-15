@@ -129,10 +129,10 @@ export const MOCK_HISTORY = [
 ]
 
 export const DURATIONS = [
+  { value: 60, label: '1m', time: '1', unit: 'MIN' },
+  { value: 300, label: '5m', time: '5', unit: 'MIN' },
+  { value: 900, label: '15m', time: '15', unit: 'MIN' },
   { value: 1800, label: '30m', time: '30', unit: 'MIN' },
   { value: 3600, label: '1h', time: '1', unit: 'HOUR' },
-  { value: 7200, label: '2h', time: '2', unit: 'HOURS' },
   { value: 14400, label: '4h', time: '4', unit: 'HOURS' },
-  { value: 28800, label: '8h', time: '8', unit: 'HOURS' },
-  { value: 86400, label: '24h', time: '24', unit: 'HOURS' },
 ]

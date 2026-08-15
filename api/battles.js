@@ -10,7 +10,7 @@ const LAMPORTS_PER_SOL = 1_000_000_000
 // Mainnet test close to US$2 while still using whole, exact lamport amounts.
 const MIN_STAKE_LAMPORTS = 13_000_000
 const MAX_STAKE_LAMPORTS = 10_000_000_000
-const ALLOWED_DURATIONS = new Set([60, 1800, 3600, 7200, 14400, 28800, 86400])
+const ALLOWED_DURATIONS = new Set([60, 300, 900, 1800, 3600, 14400])
 const DEPOSIT_INTENT_TTL_MS = 10 * 60 * 1000
 const SOLANA_MAINNET_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com'
 

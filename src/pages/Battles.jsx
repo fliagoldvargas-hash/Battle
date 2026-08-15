@@ -12,7 +12,6 @@ import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures
 import './Battles.css'
 
 const REFUND_DELAY_SECONDS = 86_400
-const TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
 const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
 const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
 const TREASURY_MODE = import.meta.env.VITE_BATTLE_SETTLEMENT_MODE === 'treasury'
@@ -38,7 +37,7 @@ export default function Battles() {
   const [joinTokenAddress, setJoinTokenAddress] = useState('')
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
-  const availableDurations = (isOnchainEscrowEnabled() || TREASURY_MODE) ? [TEST_DURATION, ...DURATIONS] : DURATIONS
+  const availableDurations = DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createError, setCreateError] = useState('')
   const [holderFeeQuote, setHolderFeeQuote] = useState(null)
