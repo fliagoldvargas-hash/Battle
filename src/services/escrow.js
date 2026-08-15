@@ -4,7 +4,7 @@ import {
   compileTransaction,
   createNoopSigner,
   createTransactionMessage,
-  getBase58Encoder,
+  getBase58Decoder,
   getTransactionEncoder,
   pipe,
   setTransactionMessageFeePayer,
@@ -13,10 +13,6 @@ import {
 import { getTransferSolInstruction } from '@solana-program/system'
 
 const ESCROW_DESTINATION = import.meta.env.VITE_ESCROW_TREASURY_ADDRESS
-// Privy can replace this sentinel with a fresh mainnet blockhash immediately
-// before signing. This avoids sending a transaction with a stale blockhash
-// when the user leaves the wallet modal open.
-const PRIVY_BLOCKHASH = '11111111111111111111111111111111'
 
 function requireEscrowDestination() {
   if (!ESCROW_DESTINATION) {
@@ -25,9 +21,24 @@ function requireEscrowDestination() {
   return address(ESCROW_DESTINATION)
 }
 
-export async function buildEscrowDepositTransaction({ walletAddress, lamports }) {
+function requireRecentBlockhash(recentBlockhash) {
+  const blockhash = recentBlockhash?.blockhash
+  const lastValidBlockHeight = Number(recentBlockhash?.lastValidBlockHeight)
+
+  if (typeof blockhash !== 'string' || !blockhash || !Number.isSafeInteger(lastValidBlockHeight) || lastValidBlockHeight < 1) {
+    throw new Error('The deposit transaction could not be prepared. Please try creating the battle again.')
+  }
+
+  return { blockhash, lastValidBlockHeight: BigInt(lastValidBlockHeight) }
+}
+
+export async function buildEscrowDepositTransaction({ walletAddress, lamports, recentBlockhash }) {
   const source = address(walletAddress)
   const destination = requireEscrowDestination()
+  // The server obtains this immediately before returning the deposit intent.
+  // Keeping the RPC call out of the browser prevents public-RPC CORS/rate-limit
+  // errors from aborting the wallet prompt before Phantom/Solflare can sign.
+  const latestBlockhash = requireRecentBlockhash(recentBlockhash)
   const instruction = getTransferSolInstruction({
     source: createNoopSigner(source),
     destination,
@@ -36,14 +47,14 @@ export async function buildEscrowDepositTransaction({ walletAddress, lamports })
   const message = pipe(
     createTransactionMessage({ version: 0 }),
     (value) => setTransactionMessageFeePayer(source, value),
-    (value) => setTransactionMessageLifetimeUsingBlockhash({ blockhash: PRIVY_BLOCKHASH, lastValidBlockHeight: 0n }, value),
+    (value) => setTransactionMessageLifetimeUsingBlockhash(latestBlockhash, value),
     (value) => appendTransactionMessageInstructions([instruction], value),
   )
   return new Uint8Array(getTransactionEncoder().encode(compileTransaction(message)))
 }
 
-export async function sendEscrowDeposit({ wallet, lamports, signAndSendTransaction }) {
-  const transaction = await buildEscrowDepositTransaction({ walletAddress: wallet.address, lamports })
+export async function sendEscrowDeposit({ wallet, lamports, recentBlockhash, signAndSendTransaction }) {
+  const transaction = await buildEscrowDepositTransaction({ walletAddress: wallet.address, lamports, recentBlockhash })
   const result = await signAndSendTransaction({
     transaction,
     wallet,
@@ -51,5 +62,5 @@ export async function sendEscrowDeposit({ wallet, lamports, signAndSendTransacti
   })
   return typeof result.signature === 'string'
     ? result.signature
-    : getBase58Encoder().encode(result.signature)
+    : getBase58Decoder().decode(result.signature)
 }

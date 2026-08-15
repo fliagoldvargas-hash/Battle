@@ -1,4 +1,6 @@
-target/
-dist/
-node_modules/
+node_modules
+target
+dist
+.env*.local
+logs
 *.log

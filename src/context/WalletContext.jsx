@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
@@ -12,49 +12,106 @@ function signatureToBase64(signature) {
   return btoa(binary)
 }
 
+function isUserCancellation(error) {
+  return /cancel|reject|declin|clos(ed|ing)/i.test(error instanceof Error ? error.message : String(error ?? ''))
+}
+
+function walletErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error ?? '')
+  if (/invalid siws message.*nonce/i.test(message)) {
+    return 'The sign-in message expired before it could be verified. Click Connect Wallet and approve the new signature.'
+  }
+  if (/already authenticated/i.test(message)) {
+    return 'Your wallet session is already active. Please try the connection again.'
+  }
+  return message || 'The wallet signature could not be verified. Please try again.'
+}
+
 export function WalletProvider({ children }) {
   const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
   const { signAndSendTransaction } = useSignAndSendTransaction()
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
   const authenticationInFlight = useRef(false)
+  const connectionInFlight = useRef(false)
+  const [isConnecting, setIsConnecting] = useState(false)
+  // Privy can expose more than one linked Solana wallet in the same browser.
+  // Keep the last wallet deliberately selected by the user; selecting the
+  // first linked wallet made a second wallet appear connected while the app
+  // still attempted a battle action with the creator's address.
+  const [selectedWalletAddress, setSelectedWalletAddress] = useState('')
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
-    // Privy rejects a second SIWS login while the current session is active.
-    // This also prevents a reconnect click from showing a false auth error.
+    // Token Battle intentionally uses one wallet per session. Linking a second
+    // wallet can fail when it belongs to another Privy user, so switching
+    // wallets always starts a fresh SIWS login instead.
     const alreadyLinked = user?.linkedAccounts?.some((linkedAccount) => (
       linkedAccount.type === 'wallet' && linkedAccount.address === solanaWallet.address
     ))
-    if ((authenticated && alreadyLinked) || authenticationInFlight.current) return
+    if (authenticationInFlight.current) return
+    if (authenticated && alreadyLinked) {
+      setSelectedWalletAddress(solanaWallet.address)
+      connectionInFlight.current = false
+      setIsConnecting(false)
+      return
+    }
     authenticationInFlight.current = true
     try {
+      if (authenticated) {
+        await logout()
+        setSelectedWalletAddress('')
+      }
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
-      const { signature } = await solanaWallet.signMessage({ message: encodedMessage })
-      await loginWithSiws({
+      // Privy returns a standard Solana wallet after it has finished connecting.
+      // Older connector descriptors expose the same signer through `provider`.
+      const signingWallet = typeof solanaWallet.signMessage === 'function'
+        ? solanaWallet
+        : solanaWallet.provider
+      if (!signingWallet || typeof signingWallet.signMessage !== 'function') {
+        throw new Error('The connected Solana wallet cannot sign messages yet. Please reconnect it.')
+      }
+      const { signature } = await signingWallet.signMessage({ message: encodedMessage })
+      const credentials = {
         signature: signatureToBase64(signature),
         message,
-      })
+        walletClientType: solanaWallet.walletClientType,
+        connectorType: solanaWallet.connectorType,
+      }
+
+      await loginWithSiws(credentials)
+      setSelectedWalletAddress(solanaWallet.address)
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
-      const message = error instanceof Error ? error.message : 'The wallet signature could not be verified. Please try again.'
-      notify('error', 'Wallet Authentication Failed', message)
+      if (!isUserCancellation(error)) {
+        notify('error', 'Wallet Authentication Failed', walletErrorMessage(error))
+      }
     } finally {
       authenticationInFlight.current = false
+      connectionInFlight.current = false
+      setIsConnecting(false)
     }
-  }, [authenticated, generateSiwsMessage, loginWithSiws, user])
+  }, [authenticated, generateSiwsMessage, loginWithSiws, logout, user])
 
   const { connectWallet } = useConnectWallet({
     onSuccess: ({ wallet: connectedWallet }) => {
+      setSelectedWalletAddress(connectedWallet.address)
       void authenticateSolanaWallet(connectedWallet)
     },
-    onError: () => {
-      notify('error', 'Wallet Connection Failed', 'Could not connect your Solana wallet. Please try again.')
+    onError: (error) => {
+      connectionInFlight.current = false
+      setIsConnecting(false)
+      if (!isUserCancellation(error)) {
+        notify('error', 'Wallet Connection Failed', 'Could not connect your Solana wallet. Please try again.')
+      }
     },
   })
-  const activeWallet = wallets.find((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
-    linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
-  )))
+  const activeWallet = useMemo(() => {
+    const linkedWallets = wallets.filter((connectedWallet) => user?.linkedAccounts?.some((linkedAccount) => (
+      linkedAccount.type === 'wallet' && linkedAccount.address === connectedWallet.address
+    )))
+    return linkedWallets.find((connectedWallet) => connectedWallet.address === selectedWalletAddress) ?? linkedWallets[0]
+  }, [selectedWalletAddress, user, wallets])
 
   const wallet = useMemo(() => ({
     connected: Boolean(authenticated && activeWallet),
@@ -63,39 +120,86 @@ export function WalletProvider({ children }) {
     provider: activeWallet?.standardWallet?.name ?? null,
   }), [activeWallet, authenticated])
 
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (!privyReady) {
       notify('info', 'Wallet Loading', 'Privy is still preparing wallet connections')
       return
     }
 
-    if (authenticated && activeWallet) return
+    if ((authenticated && activeWallet) || connectionInFlight.current || authenticationInFlight.current) return
 
-    // Privy can open the wallet selector while browser extension discovery is
-    // still running, so do not block a deliberate connection on walletsReady.
+    connectionInFlight.current = true
+    setIsConnecting(true)
+
+    // Browser extension discovery can take longer in Opera. Privy can still
+    // open its wallet selector while that discovery finishes, so do not block
+    // a deliberate connection attempt on `walletsReady`.
     const connectedSolanaWallet = walletsReady
       ? (wallets.find((connectedWallet) => connectedWallet.chainType === 'solana') ?? wallets[0])
       : null
     if (connectedSolanaWallet) {
+      setSelectedWalletAddress(connectedSolanaWallet.address)
       void authenticateSolanaWallet(connectedSolanaWallet)
       return
     }
 
-    connectWallet({
-      walletList: ['phantom', 'solflare'],
-      walletChainType: 'solana-only',
-    })
+    try {
+      await connectWallet({
+        walletList: ['phantom', 'solflare'],
+        walletChainType: 'solana-only',
+      })
+    } catch (error) {
+      connectionInFlight.current = false
+      setIsConnecting(false)
+      if (!isUserCancellation(error)) {
+        notify('error', 'Wallet Connection Failed', 'Could not open the Solana wallet selector. Please try again.')
+      }
+    }
   }, [activeWallet, authenticated, authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
 
   const disconnect = useCallback(async () => {
-    await logout()
-    notify('info', 'Wallet Disconnected', 'Your Privy session has been closed')
-  }, [logout])
+    if (connectionInFlight.current || authenticationInFlight.current) return
 
-  const depositStake = useCallback((lamports) => {
+    connectionInFlight.current = true
+    setIsConnecting(true)
+    try {
+      // Closing the Privy session alone leaves Phantom/Solflare marked as
+      // connected in this browser. Disconnect both layers before the next login.
+      if (typeof activeWallet?.disconnect === 'function') await activeWallet.disconnect()
+    } catch (error) {
+      console.warn('External wallet disconnect failed; closing Privy session anyway.', error)
+    } finally {
+      try {
+        await logout()
+        setSelectedWalletAddress('')
+        notify('info', 'Wallet Disconnected', 'Your Privy session and wallet connection have been closed')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not close your Privy session. Please try again.'
+        notify('error', 'Wallet Disconnect Failed', message)
+      } finally {
+        connectionInFlight.current = false
+        setIsConnecting(false)
+      }
+    }
+  }, [activeWallet, logout])
+
+  const depositStake = useCallback((lamports, recentBlockhash) => {
     if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
-    return sendEscrowDeposit({ wallet: activeWallet, lamports, signAndSendTransaction })
-  }, [activeWallet, signAndSendTransaction])
+    if (typeof activeWallet.signAndSendTransaction !== 'function') {
+      throw new Error('Your connected wallet cannot send Solana transactions. Disconnect it and connect Phantom or Solflare again.')
+    }
+
+    // Deposits from Phantom/Solflare must use the standard-wallet method on
+    // the external wallet itself. Routing them through Privy's generic hook
+    // can open Privy's internal transaction UI instead of the extension and
+    // leave Opera on a black overlay before any signature request is shown.
+    return sendEscrowDeposit({
+      wallet: activeWallet,
+      lamports,
+      recentBlockhash,
+      signAndSendTransaction: ({ transaction, chain }) => activeWallet.signAndSendTransaction({ transaction, chain }),
+    })
+  }, [activeWallet])
 
   const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
 
@@ -106,8 +210,11 @@ export function WalletProvider({ children }) {
       disconnect,
       depositStake,
       escrowConfigured,
+      solanaWallet: activeWallet,
+      signAndSendSolanaTransaction: signAndSendTransaction,
       getAccessToken,
       isReady: privyReady,
+      isConnecting,
       isConfigured: true,
     }}>
       {children}
@@ -126,8 +233,11 @@ export function WalletUnavailableProvider({ children }) {
     disconnect: () => {},
     depositStake: async () => { throw new Error('Privy is not configured.') },
     escrowConfigured: false,
+    solanaWallet: null,
+    signAndSendSolanaTransaction: async () => { throw new Error('Privy is not configured.') },
     getAccessToken: async () => null,
     isReady: true,
+    isConnecting: false,
     isConfigured: false,
   }), [connect])
 

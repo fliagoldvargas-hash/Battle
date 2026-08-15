@@ -12,6 +12,7 @@ end $$;
 
 create table if not exists public.battles (
   id uuid primary key default gen_random_uuid(),
+  network text not null default 'mainnet' check (network in ('mainnet', 'devnet')),
   status public.battle_status not null default 'waiting',
   creator_privy_user_id text not null,
   creator_wallet text not null,
@@ -27,6 +28,7 @@ create table if not exists public.battles (
   token_b_change_pct numeric,
   stake_lamports numeric(20, 0) not null check (stake_lamports > 0),
   pot_lamports numeric(20, 0) not null check (pot_lamports > 0),
+  fee_bps smallint not null default 25 check (fee_bps between 0 and 10000),
   duration_seconds integer not null check (duration_seconds > 0),
   starts_at timestamptz,
   ends_at timestamptz,
@@ -35,6 +37,9 @@ create table if not exists public.battles (
   escrow_state text not null default 'not_configured',
   escrow_program_id text,
   escrow_account text,
+  onchain_battle_address text,
+  onchain_battle_id text,
+  vault_address text,
   creator_deposit_signature text,
   opponent_deposit_signature text,
   settlement_signature text,
@@ -66,6 +71,7 @@ create table if not exists public.platform_fee_receipts (
 );
 
 create index if not exists battles_status_created_at_idx on public.battles (status, created_at desc);
+create index if not exists battles_network_status_created_at_idx on public.battles (network, status, created_at desc);
 create index if not exists battle_price_snapshots_battle_id_captured_at_idx on public.battle_price_snapshots (battle_id, captured_at desc);
 create index if not exists platform_fee_receipts_settled_at_idx on public.platform_fee_receipts (settled_at desc);
 create index if not exists battles_escrow_state_idx on public.battles (escrow_state, ends_at);
@@ -75,6 +81,12 @@ create unique index if not exists battles_creator_deposit_signature_uidx
 create unique index if not exists battles_opponent_deposit_signature_uidx
   on public.battles (opponent_deposit_signature)
   where opponent_deposit_signature is not null;
+create unique index if not exists battles_network_onchain_battle_address_uidx
+  on public.battles (network, onchain_battle_address)
+  where onchain_battle_address is not null;
+create unique index if not exists battles_network_onchain_battle_id_uidx
+  on public.battles (network, onchain_battle_id)
+  where onchain_battle_id is not null;
 
 alter table public.battles enable row level security;
 alter table public.battle_price_snapshots enable row level security;

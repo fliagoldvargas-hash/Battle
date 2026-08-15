@@ -4,11 +4,5 @@
       "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
-  ],
-  "crons": [
-    {
-      "path": "/api/cron/battles",
-      "schedule": "0 0 * * *"
-    }
   ]
 }

@@ -13,7 +13,7 @@ const navItems = [
 
 export default function Navbar() {
   const navigate = useNavigate()
-  const { wallet, connect, disconnect, isReady } = useWallet()
+  const { wallet, connect, disconnect, isReady, isConnecting } = useWallet()
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {
@@ -25,7 +25,7 @@ export default function Navbar() {
 
   const handleWallet = async () => {
     if (!wallet.connected) {
-      connect()
+      await connect()
       return
     }
     await disconnect()
@@ -67,11 +67,13 @@ export default function Navbar() {
             <button
               className={`wallet-btn ${wallet.connected ? 'connected' : ''}`}
               onClick={handleWallet}
-              disabled={!isReady}
+              disabled={!isReady || isConnecting}
               title={wallet.connected ? wallet.address : 'Connect wallet'}
             >
               <Icon name="wallet" size={17} />
-              <span>{wallet.connected ? `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}` : isReady ? 'Connect' : 'Loading'}</span>
+              <span>{wallet.connected
+                ? (isConnecting ? 'Disconnecting…' : `${wallet.address.slice(0, 4)}…${wallet.address.slice(-4)}`)
+                : (isConnecting ? 'Connecting…' : isReady ? 'Connect' : 'Loading')}</span>
             </button>
           </div>
         </div>

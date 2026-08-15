@@ -1,4 +1,5 @@
 const LAMPORTS_PER_SOL = 1_000_000_000
+const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'devnet' ? 'devnet' : 'mainnet'
 
 const shortAddress = (address) => {
   if (!address) return 'Unknown'
@@ -32,8 +33,20 @@ export const mapBattle = (battle) => ({
   durationLabel: durationLabel(battle.duration_seconds),
   endTime: battle.ends_at ? Math.floor(new Date(battle.ends_at).getTime() / 1000) : undefined,
   creator: shortAddress(battle.creator_wallet),
+  creatorAddress: battle.creator_wallet,
   opponent: battle.opponent_wallet ? shortAddress(battle.opponent_wallet) : undefined,
+  opponentAddress: battle.opponent_wallet,
   winner: battle.winner_symbol,
+  network: battle.network ?? NETWORK,
+  onchainBattleId: battle.onchain_battle_id,
+  onchainBattleAddress: battle.onchain_battle_address,
+  vaultAddress: battle.vault_address,
+  treasuryAddress: battle.escrow_account,
+  creatorDepositSignature: battle.creator_deposit_signature,
+  opponentDepositSignature: battle.opponent_deposit_signature,
+  settlementSignature: battle.settlement_signature,
+  escrowState: battle.escrow_state,
+  feeBps: Number(battle.fee_bps ?? 25),
 })
 
 export async function fetchPublicBattles() {
@@ -44,6 +57,7 @@ export async function fetchPublicBattles() {
   const { data, error } = await supabase
     .from('battles')
     .select('*')
+    .eq('network', NETWORK)
     .in('status', ['waiting', 'active', 'finished', 'settled'])
     .order('created_at', { ascending: false })
     .limit(50)

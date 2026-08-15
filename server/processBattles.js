@@ -7,10 +7,7 @@ function performancePercent(current, initial) {
 
 function selectWinner(changeA, changeB, mintA, mintB) {
   if (changeA == null || changeB == null) return null
-  if (changeA !== changeB) return changeA > changeB ? mintA : mintB
-  // The displayed score is fixed to four decimals. If those values match,
-  // use the mint as a deterministic final ordering so every battle resolves.
-  return String(mintA).localeCompare(String(mintB)) > 0 ? mintA : mintB
+  return changeA > changeB ? mintA : mintB
 }
 
 async function processBattle(supabase, battle) {
@@ -52,11 +49,13 @@ async function processBattle(supabase, battle) {
   return { id: battle.id, status: update.status ?? 'active', ended }
 }
 
-export async function processActiveBattles(supabase, limit = 100) {
+export async function processActiveBattles(supabase, limit = 100, network = 'mainnet') {
   const { data: battles, error } = await supabase
     .from('battles')
     .select('*')
+    .eq('network', network)
     .eq('status', 'active')
+    .eq('escrow_state', 'funded')
     .not('ends_at', 'is', null)
     .lte('starts_at', new Date().toISOString())
     .limit(limit)

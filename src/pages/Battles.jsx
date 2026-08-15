@@ -1,43 +1,63 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { gsap } from 'gsap'
-import { useGSAP } from '@gsap/react'
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
-import { CrownMark, Icon } from '../components/BrandMark'
 import { DURATIONS } from '../data/mockData'
 import { useWallet } from '../context/useWallet'
 import { notify } from '../components/notificationService'
 import { fetchPublicBattles } from '../services/battles'
-import { createBattle, joinBattle } from '../services/battleActions'
+import { confirmBattleDeposit, createBattle, joinBattle, recoverOnchainBattles, refreshBattleDepositBlockhash, syncOnchainBattle, syncOnchainEscrowAction } from '../services/battleActions'
+import { cancelOnchainBattle, createOnchainBattle, formatFeePercent, getHolderFeeQuote, getOnchainStatus, isOnchainEscrowEnabled, joinOnchainBattle, refundExpiredOnchainBattle } from '../services/onchainEscrow'
 import { lookupPumpFunToken } from '../services/pumpfunTokens'
+import { solanaExplorerAddress, solanaExplorerTransaction, transactionSignatures } from '../services/solanaExplorer'
 import './Battles.css'
 
-gsap.registerPlugin(useGSAP)
-const PLATFORM_FEE_RATE = 0.0025
-const filterLabels = { all: 'All', waiting: 'Open', active: 'Live', finished: 'Finished' }
+const REFUND_DELAY_SECONDS = 86_400
+const TEST_DURATION = { value: 60, label: '1m', time: '1', unit: 'MIN' }
+const NETWORK = import.meta.env.VITE_BATTLE_NETWORK === 'mainnet' ? 'mainnet' : 'devnet'
+const NETWORK_LABEL = NETWORK === 'mainnet' ? 'Mainnet' : 'Devnet'
+const TREASURY_MODE = import.meta.env.VITE_BATTLE_SETTLEMENT_MODE === 'treasury'
+
+function actionErrorMessage(error, fallback) {
+  if (error instanceof Error && error.message) return error.message
+  const message = error?.message ?? error?.error?.message ?? error?.reason
+  return message && String(message).trim() ? String(message) : fallback
+}
 
 export default function Battles() {
-  const { wallet, getAccessToken, depositStake, escrowConfigured } = useWallet()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const pageRef = useRef(null)
+  const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
   const [battles, setBattles] = useState([])
-  const [isLoading, setIsLoading] = useState(true)
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
-  const [createOpen, setCreateOpen] = useState(searchParams.get('create') === '1')
-  const [createStep, setCreateStep] = useState(1)
+  const [createOpen, setCreateOpen] = useState(false)
   const [viewBattle, setViewBattle] = useState(null)
   const [selectedDuration, setSelectedDuration] = useState(3600)
-  const [stakeAmount, setStakeAmount] = useState('5')
+  const [stakeAmount, setStakeAmount] = useState('0.013')
   const [selectedToken, setSelectedToken] = useState(null)
   const [tokenAddress, setTokenAddress] = useState('')
   const [joinToken, setJoinToken] = useState(null)
   const [joinTokenAddress, setJoinTokenAddress] = useState('')
   const [isLookingUpToken, setIsLookingUpToken] = useState(false)
   const [isLookingUpJoinToken, setIsLookingUpJoinToken] = useState(false)
+  const availableDurations = (isOnchainEscrowEnabled() || TREASURY_MODE) ? [TEST_DURATION, ...DURATIONS] : DURATIONS
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [currentTime, setCurrentTime] = useState(() => Math.floor(Date.now() / 1000))
+  const [createError, setCreateError] = useState('')
+  const [holderFeeQuote, setHolderFeeQuote] = useState(null)
+  const [onchainStatus, setOnchainStatus] = useState(null)
+  const recoveredWallet = useRef('')
+  const escrowConfiguredForDeployment = isOnchainEscrowEnabled()
+  const isOnchainEscrow = escrowConfiguredForDeployment && onchainStatus?.configured === true
+
+  useEffect(() => {
+    if (!escrowConfiguredForDeployment) return undefined
+    let cancelled = false
+    void getOnchainStatus()
+      .then((status) => { if (!cancelled) setOnchainStatus(status) })
+      .catch((error) => {
+        console.warn('Unable to read on-chain escrow status', error)
+        if (!cancelled) setOnchainStatus({ configured: false })
+      })
+    return () => { cancelled = true }
+  }, [escrowConfiguredForDeployment])
 
   const refreshBattles = useCallback(async () => {
     const remoteBattles = await fetchPublicBattles()
@@ -51,45 +71,85 @@ export default function Battles() {
         const remoteBattles = await fetchPublicBattles()
         if (!cancelled) setBattles(remoteBattles ?? [])
       } catch (error) {
-        if (!cancelled) notify('error', 'Battles unavailable', error.message)
-      } finally {
-        if (!cancelled) setIsLoading(false)
+        if (!cancelled) notify('error', 'Battles Unavailable', error.message)
       }
     }
+
     void load()
-    const interval = setInterval(() => void refreshBattles().catch(() => {}), 30_000)
-    return () => { cancelled = true; clearInterval(interval) }
+    const interval = setInterval(() => {
+      void refreshBattles().catch(() => {})
+    }, 10_000)
+
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [refreshBattles])
 
   useEffect(() => {
-    if (searchParams.get('create') === '1') setCreateOpen(true)
-  }, [searchParams])
+    if (!wallet.connected || !isOnchainEscrowEnabled() || recoveredWallet.current === wallet.address) return
+    recoveredWallet.current = wallet.address
+    void recoverOnchainBattles({ getAccessToken, walletAddress: wallet.address })
+      .then((recovered) => {
+        if (recovered.length) {
+          notify('info', 'Battle Restored', 'Your confirmed on-chain battle was restored.')
+          return refreshBattles()
+        }
+        return undefined
+      })
+      .catch((error) => {
+        console.warn('On-chain battle recovery skipped', error)
+      })
+  }, [getAccessToken, refreshBattles, wallet.address, wallet.connected])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!wallet.connected || (!isOnchainEscrow && !TREASURY_MODE)) {
+      setHolderFeeQuote(null)
+      return undefined
+    }
+    const quote = TREASURY_MODE
+      ? fetch(`/api/holder-fees?wallet=${encodeURIComponent(wallet.address)}`).then((response) => response.ok ? response.json() : Promise.reject(new Error('Unable to read the holder fee quote.')))
+      : getHolderFeeQuote(wallet.address)
+    void quote
+      .then((quote) => {
+        if (!cancelled) setHolderFeeQuote(quote)
+      })
+      .catch((error) => {
+        console.warn('Unable to read holder fee quote', error)
+        if (!cancelled) setHolderFeeQuote(null)
+      })
+    return () => { cancelled = true }
+  }, [isOnchainEscrow, wallet.address, wallet.connected])
+
+  const filteredBattles = useMemo(() => {
+    let list = [...battles]
+    if (filter !== 'all') list = list.filter(b => b.status === filter)
+    if (search) {
+      const s = search.toLowerCase()
+      list = list.filter(b =>
+        b.tokenA.symbol.toLowerCase().includes(s) ||
+        (b.tokenB && b.tokenB.symbol.toLowerCase().includes(s))
+      )
+    }
+    return list
+  }, [battles, filter, search])
+
+  const [currentTime, setCurrentTime] = useState(() => Math.floor(Date.now() / 1000))
 
   useEffect(() => {
     if (viewBattle?.status !== 'active') return undefined
+
     const interval = setInterval(() => setCurrentTime(Math.floor(Date.now() / 1000)), 1000)
     return () => clearInterval(interval)
   }, [viewBattle?.status])
 
-  useGSAP(() => {
-    const mm = gsap.matchMedia()
-    mm.add('(prefers-reduced-motion: no-preference)', () => {
-      gsap.from('.battle-grid-item', { autoAlpha: 0, y: 18, stagger: .045, duration: .35, ease: 'power2.out' })
-    })
-    return () => mm.revert()
-  }, { scope: pageRef, dependencies: [filter, battles.length], revertOnUpdate: true })
-
-  const filteredBattles = useMemo(() => {
-    const normalized = search.trim().toLowerCase()
-    return battles.filter((battle) => {
-      const matchesStatus = filter === 'all' || battle.status === filter
-      const matchesSearch = !normalized || battle.tokenA.symbol.toLowerCase().includes(normalized) || battle.tokenB?.symbol.toLowerCase().includes(normalized)
-      return matchesStatus && matchesSearch
-    })
-  }, [battles, filter, search])
-
   const loadToken = async (address, setToken, setLoading) => {
-    if (!address.trim()) { setToken(null); return null }
+    if (!address.trim()) {
+      setToken(null)
+      return null
+    }
+
     setLoading(true)
     try {
       const token = await lookupPumpFunToken(address)
@@ -97,127 +157,606 @@ export default function Battles() {
       return token
     } catch (error) {
       setToken(null)
-      notify('error', 'Token not found', error.message)
+      notify('error', 'Token Not Found', error.message)
       return null
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const recoverConfirmedOnchainBattle = async (battleAddress) => {
+    // The wallet can broadcast before every RPC replica has the new
+    // account state. Keep synchronizing a confirmed action instead of showing
+    // a false error to the user.
+    for (const delay of [0, 1_500, 3_000, 4_500]) {
+      if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay))
+      const recovered = await recoverOnchainBattles({ getAccessToken, walletAddress: wallet.address })
+      const battle = recovered.find((candidate) => candidate.onchainBattleAddress === battleAddress)
+      if (battle) {
+        await refreshBattles()
+        return battle
+      }
+    }
+    return null
+  }
+
+  const completeTreasuryDeposit = async ({ prepared, action, token }) => {
+    let currentPrepared = prepared
+
+    // A Solana blockhash is intentionally short-lived. If a user leaves the
+    // wallet approval open for too long, the first transaction cannot ever be
+    // accepted by the network. Request one fresh approval instead of leaving
+    // the battle in an error state or risking a second unverified deposit.
+    for (let approvalAttempt = 0; approvalAttempt < 2; approvalAttempt += 1) {
+      const depositSignature = escrowConfigured
+        ? await depositStake(currentPrepared.stakeLamports, currentPrepared.recentBlockhash)
+        : null
+      try {
+        return await confirmBattleDeposit({
+          getAccessToken,
+          walletAddress: wallet.address,
+          action,
+          token,
+          depositIntentId: currentPrepared.depositIntentId,
+          depositSignature,
+          lastValidBlockHeight: currentPrepared.recentBlockhash?.lastValidBlockHeight,
+        })
+      } catch (error) {
+        if (error?.code !== 'DEPOSIT_EXPIRED' || approvalAttempt === 1) throw error
+        notify('info', 'Refreshing Wallet Approval', 'The first Solana approval expired before it was sent. No SOL was transferred; please approve the fresh request.')
+        currentPrepared = await refreshBattleDepositBlockhash({
+          getAccessToken,
+          walletAddress: wallet.address,
+          depositIntentId: currentPrepared.depositIntentId,
+        })
+      }
+    }
+
+    throw new Error('Unable to refresh the wallet approval.')
   }
 
   const formatMarketCap = (marketCap) => {
-    if (!Number.isFinite(marketCap)) return 'Unavailable'
-    if (marketCap >= 1_000_000_000) return `$${(marketCap / 1_000_000_000).toFixed(2)}B`
-    if (marketCap >= 1_000_000) return `$${(marketCap / 1_000_000).toFixed(2)}M`
-    if (marketCap >= 1_000) return `$${(marketCap / 1_000).toFixed(1)}K`
-    return `$${marketCap.toFixed(0)}`
+    if (!Number.isFinite(marketCap)) return 'MC unavailable'
+    if (marketCap >= 1_000_000_000) return `MC $${(marketCap / 1_000_000_000).toFixed(2)}B`
+    if (marketCap >= 1_000_000) return `MC $${(marketCap / 1_000_000).toFixed(2)}M`
+    if (marketCap >= 1_000) return `MC $${(marketCap / 1_000).toFixed(1)}K`
+    return `MC $${marketCap.toFixed(0)}`
+  }
+
+  const handleCreate = async () => {
+    if (!wallet.connected) {
+      notify('error', 'Wallet Required', 'Please connect your wallet first')
+      return
+    }
+    if (escrowConfiguredForDeployment && !isOnchainEscrow) {
+      notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
+      return
+    }
+    if (TREASURY_MODE && !escrowConfigured) {
+      notify('error', 'Treasury Not Ready', 'The secure Mainnet treasury is not configured yet. No wallet transaction was requested.')
+      return
+    }
+    const stake = Number(stakeAmount)
+    const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
+    if (!token || !Number.isFinite(stake) || stake < 0.013) {
+      notify('error', 'Invalid Battle', 'Enter a valid Pump.fun CA and a stake of at least 0.013 SOL')
+      return
+    }
+
+    setCreateError('')
+    setIsSubmitting(true)
+    try {
+      const newBattle = isOnchainEscrowEnabled()
+        ? await (async () => {
+          const onchain = await createOnchainBattle({
+            wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+            tokenMint: token.mint, stakeLamports: Math.round(stake * 1_000_000_000), durationSeconds: selectedDuration,
+          })
+          try {
+            return await syncOnchainBattle({
+              getAccessToken, walletAddress: wallet.address,
+              body: { action: 'create', ...onchain },
+            })
+          } catch (syncError) {
+            const recovered = await recoverConfirmedOnchainBattle(onchain.battleAddress)
+            if (recovered) return recovered
+            throw syncError
+          }
+        })()
+        : await (async () => {
+          const prepared = await createBattle({
+            getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
+            stakeSol: stake, durationSeconds: selectedDuration,
+          })
+          return completeTreasuryDeposit({ prepared, action: 'create', token: { mint: token.mint } })
+        })()
+      setBattles(currentBattles => [newBattle, ...currentBattles])
+      notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
+      setCreateOpen(false)
+      setSelectedToken(null)
+      setTokenAddress('')
+      setStakeAmount('0.013')
+    } catch (error) {
+      const message = actionErrorMessage(error, 'The wallet could not create this battle. Approve the wallet transaction and try again.')
+      console.error('Battle creation failed', error)
+      setCreateError(message)
+      notify('error', 'Battle Not Created', message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const openBattle = (battle) => {
+    // Defer the modal's substantial details render until after the button
+    // event has completed. Otherwise Chrome reports a misleading INP issue
+    // against the Join button even though no wallet action has started.
+    window.setTimeout(() => {
+      startTransition(() => {
+        setViewBattle(battle)
+        setJoinToken(null)
+        setJoinTokenAddress('')
+      })
+    }, 0)
+  }
+
+  const handleJoin = async () => {
+    if (!wallet.connected) {
+      notify('error', 'Wallet Required', 'Please connect your wallet before joining a battle')
+      return
+    }
+    if (escrowConfiguredForDeployment && !isOnchainEscrow) {
+      notify('error', 'Escrow Not Ready', `The ${NETWORK_LABEL} escrow is not initialized yet. No wallet transaction was requested.`)
+      return
+    }
+    if (TREASURY_MODE && !escrowConfigured) {
+      notify('error', 'Treasury Not Ready', 'The secure Mainnet treasury is not configured yet. No wallet transaction was requested.')
+      return
+    }
+    const token = joinToken ?? await loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
+    if (!token) {
+      notify('error', 'Token Required', 'Enter a valid Pump.fun contract address')
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      let joinedBattle
+      if (isOnchainEscrowEnabled()) {
+        const onchain = await joinOnchainBattle({
+          wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+          battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
+        })
+        try {
+          joinedBattle = await syncOnchainBattle({
+            getAccessToken, walletAddress: wallet.address,
+            body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
+          })
+        } catch (syncError) {
+          joinedBattle = await recoverConfirmedOnchainBattle(onchain.battleAddress)
+          if (!joinedBattle) throw syncError
+        }
+      } else {
+        joinedBattle = await (async () => {
+          const prepared = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id })
+          return completeTreasuryDeposit({ prepared, action: 'join', token: { mint: token.mint } })
+        })()
+      }
+      setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
+      notify('success', 'Joined Battle!', `You joined against ${viewBattle.tokenA.symbol}`)
+      setViewBattle(null)
+    } catch (error) {
+      notify('error', 'Could Not Join', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleCancel = async () => {
+    if (!viewBattle || !isOnchainEscrow) return
+    setIsSubmitting(true)
+    try {
+      const onchain = await cancelOnchainBattle({
+        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+        battleIdHex: viewBattle.onchainBattleId,
+      })
+      await syncOnchainEscrowAction({
+        getAccessToken, walletAddress: wallet.address,
+        body: { action: 'cancel', ...onchain },
+      })
+      setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
+      setViewBattle(null)
+      notify('success', 'Battle Cancelled', `Your ${NETWORK_LABEL} stake has been returned to your wallet.`)
+    } catch (error) {
+      notify('error', 'Could Not Cancel', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleRefund = async () => {
+    if (!viewBattle || !isOnchainEscrow) return
+    setIsSubmitting(true)
+    try {
+      const onchain = await refundExpiredOnchainBattle({
+        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+        battleIdHex: viewBattle.onchainBattleId,
+        creatorAddress: viewBattle.creatorAddress,
+        opponentAddress: viewBattle.opponentAddress,
+      })
+      await syncOnchainEscrowAction({
+        getAccessToken, walletAddress: wallet.address,
+        body: { action: 'refund', ...onchain },
+      })
+      setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
+      setViewBattle(null)
+      notify('success', 'Battle Refunded', `Both ${NETWORK_LABEL} stakes have been returned to their wallets.`)
+    } catch (error) {
+      notify('error', 'Could Not Refund', error.message)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const formatTime = (seconds) => {
     if (seconds <= 0) return '00:00:00'
-    const h = Math.floor(seconds / 3600); const m = Math.floor((seconds % 3600) / 60); const s = seconds % 60
+    const h = Math.floor(seconds / 3600)
+    const m = Math.floor((seconds % 3600) / 60)
+    const s = seconds % 60
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
-  const closeCreate = () => {
-    setCreateOpen(false)
-    setCreateStep(1)
-    if (searchParams.has('create')) { const next = new URLSearchParams(searchParams); next.delete('create'); setSearchParams(next, { replace: true }) }
-  }
-
-  const advanceFromToken = async () => {
-    const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
-    if (token) setCreateStep(2)
-  }
-
-  const advanceFromConfig = () => {
-    const stake = Number(stakeAmount)
-    if (!Number.isFinite(stake) || stake < .1) { notify('error', 'Invalid stake', 'Enter at least 0.1 SOL'); return }
-    setCreateStep(3)
-  }
-
-  const handleCreate = async () => {
-    if (!wallet.connected) { notify('error', 'Wallet required', 'Connect your wallet before creating a battle'); return }
-    const stake = Number(stakeAmount)
-    const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
-    if (!token || !Number.isFinite(stake) || stake < .1) { notify('error', 'Invalid battle', 'Verify the token and enter at least 0.1 SOL'); return }
-    setIsSubmitting(true)
-    try {
-      const depositSignature = escrowConfigured ? await depositStake(Math.round(stake * 1_000_000_000)) : null
-      const newBattle = await createBattle({ getAccessToken, walletAddress: wallet.address, token: { mint: token.mint }, stakeSol: stake, durationSeconds: selectedDuration, depositSignature })
-      setBattles((current) => [newBattle, ...current])
-      notify('success', 'Battle created', `${token.symbol} is ready for a challenger`)
-      closeCreate(); setSelectedToken(null); setTokenAddress(''); setStakeAmount('5')
-    } catch (error) { notify('error', 'Battle not created', error.message) } finally { setIsSubmitting(false) }
-  }
-
-  const openBattle = (battle) => { setViewBattle(battle); setJoinToken(null); setJoinTokenAddress('') }
-
-  const handleJoin = async () => {
-    if (!wallet.connected) { notify('error', 'Wallet required', 'Connect your wallet before joining'); return }
-    const token = joinToken ?? await loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
-    if (!token) { notify('error', 'Token required', 'Enter a valid Pump.fun contract address'); return }
-    setIsSubmitting(true)
-    try {
-      const depositSignature = escrowConfigured ? await depositStake(Math.round(Number(viewBattle.stake) * 1_000_000_000)) : null
-      const joinedBattle = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id, token: { mint: token.mint }, depositSignature })
-      setBattles((current) => current.map((battle) => battle.id === joinedBattle.id ? joinedBattle : battle))
-      notify('success', 'Battle joined', 'Your deposit is confirmed')
-      setViewBattle(null)
-    } catch (error) { notify('error', 'Could not join', error.message) } finally { setIsSubmitting(false) }
-  }
-
-  const stake = Number(stakeAmount || 0)
-  const duration = DURATIONS.find((item) => item.value === selectedDuration)
+  const feeBps = holderFeeQuote?.feeBps ?? 100
+  const feeRate = feeBps / 10_000
 
   return (
-    <section className="page-shell arena-page" ref={pageRef}>
-      <div className="arena-header">
-        <div className="page-header"><p className="page-kicker">FLIPPEN arena</p><h1 className="page-title">Choose a side.<br />Fight for the crown.</h1><p className="page-subtitle">Browse open matchups, track live performance, or put your own token conviction on the line.</p></div>
-        <button className="primary-button arena-create" onClick={() => setCreateOpen(true)}>Create Battle <Icon name="arrowRight" size={18} /></button>
+    <section className="battles-section">
+      <div className="page-header">
+        <h1 className="page-title">⚔ Battles</h1>
+        <p className="page-subtitle">Browse open battles or create your own challenge</p>
+        {escrowConfiguredForDeployment && !isOnchainEscrow && (
+          <div className="devnet-notice" role="status">
+            <strong>ESCROW NOT READY</strong>
+            <span>The {NETWORK_LABEL} program has not been initialized. Creating and joining battles are disabled until the on-chain setup is verified.</span>
+          </div>
+        )}
+        {isOnchainEscrow && (
+          <div className="devnet-notice" role="status">
+            <strong>{NETWORK === 'devnet' ? 'DEVNET TEST MODE' : 'MAINNET ESCROW'}</strong>
+            <span>{NETWORK === 'devnet' ? 'Uses test SOL only. ' : ''}The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
+          </div>
+        )}
+        {TREASURY_MODE && (
+          <div className="devnet-notice" role="status">
+            <strong>MAINNET TREASURY</strong>
+            <span>Each deposit is verified on Solana before the battle activates. The winner and the locked platform fee are paid automatically after settlement.</span>
+          </div>
+        )}
       </div>
 
-      <div className="arena-toolbar" aria-label="Battle filters">
-        <div className="filter-group">{Object.keys(filterLabels).map((value) => <button key={value} className={filter === value ? 'active' : ''} onClick={() => setFilter(value)} aria-pressed={filter === value}>{value === 'active' && <span className="filter-live-dot" />}{filterLabels[value]}</button>)}</div>
-        <label className="battle-search"><span className="sr-only">Search battles by token</span><Icon name="search" size={18} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search token" /></label>
-        <span className="battle-count mono">{filteredBattles.length} MATCHUPS</span>
+      <div className="battles-container">
+        <div className="battles-toolbar">
+          <div className="filter-group">
+            {['all', 'waiting', 'active', 'finished'].map(f => (
+              <button
+                key={f}
+                className={`filter-btn ${filter === f ? 'active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'active' && <span className="live-dot" />}
+                {f === 'all' ? 'All' : f === 'waiting' ? 'Open' : f === 'active' ? 'Live' : 'Finished'}
+              </button>
+            ))}
+          </div>
+          <input
+            type="text"
+            className="search-box"
+            placeholder="Search token..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <button className="create-battle-btn" onClick={() => setCreateOpen(true)} disabled={escrowConfiguredForDeployment && !isOnchainEscrow}>
+            + Create Battle
+          </button>
+        </div>
+
+        {filteredBattles.length > 0 ? (
+          <div className="battles-grid">
+            {filteredBattles.map((battle, i) => (
+              <div key={battle.id} className="animate-in" style={{ animationDelay: `${i * 0.08}s` }}>
+                <BattleCard battle={battle} onClick={openBattle} walletAddress={wallet.address} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">
+            <div className="empty-icon">⚔</div>
+            <div className="empty-title">No battles found</div>
+            <p className="empty-text">Try a different filter or create a new battle!</p>
+          </div>
+        )}
       </div>
 
-      {isLoading ? <div className="battle-skeleton-grid" aria-label="Loading battles">{[0,1,2,3].map((item) => <div key={item} className="battle-skeleton" />)}</div> : filteredBattles.length ? (
-        <div className="battles-grid">{filteredBattles.map((battle) => <div className="battle-grid-item" key={battle.id}><BattleCard battle={battle} onClick={openBattle} /></div>)}</div>
-      ) : <div className="empty-state"><CrownMark size={52} /><h2 className="empty-title">No matchups found</h2><p className="empty-text">Clear the filters or open a new battle and wait for a challenger.</p><button className="secondary-button" onClick={() => setCreateOpen(true)}>Create the first matchup</button></div>}
+      {/* Create Battle Modal */}
+      <Modal isOpen={createOpen} onClose={() => setCreateOpen(false)} title="⚔ Create Battle">
+        <div className="form-group">
+          <label className="form-label">Your Token</label>
+          <div className="form-input-wrap">
+            <input
+              type="text"
+              className="form-input"
+              placeholder="Paste a Pump.fun contract address (CA)..."
+              value={tokenAddress}
+              onChange={e => {
+                setTokenAddress(e.target.value)
+                setSelectedToken(null)
+              }}
+              onBlur={() => loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
+                }
+              }}
+            />
+          </div>
+          {isLookingUpToken && <p className="form-hint">Checking Pump.fun...</p>}
+          {selectedToken && <p className="form-hint">Verified: {selectedToken.name} (${selectedToken.symbol}) · {formatMarketCap(selectedToken.marketCap)}</p>}
+          {createError && <p className="form-hint form-hint-error" role="alert">{createError}</p>}
+        </div>
 
-      <Modal isOpen={createOpen} onClose={closeCreate} title="Create Battle" size="wide">
-        <ol className="create-progress" aria-label="Battle creation progress">{['Pick token', 'Configure', 'Review'].map((label, index) => <li key={label} className={createStep >= index + 1 ? 'active' : ''}><span>{index + 1}</span>{label}</li>)}</ol>
+        <div className="form-group">
+          <label className="form-label">Battle Duration</label>
+          <div className="duration-grid">
+            {availableDurations.map(d => (
+              <div
+                key={d.value}
+                className={`duration-option ${selectedDuration === d.value ? 'selected' : ''}`}
+                onClick={() => setSelectedDuration(d.value)}
+              >
+                <div className="dur-time">{d.time}</div>
+                <div className="dur-label">{d.unit}</div>
+              </div>
+            ))}
+          </div>
+        </div>
 
-        {createStep === 1 && <div className="create-step">
-          <div className="step-intro"><span className="step-number">01</span><div><h3>Pick your token</h3><p>This is the bag you believe will outperform the challenger.</p></div></div>
-          <label className="form-group"><span className="form-label">Pump.fun contract address</span><input className="form-input mono" value={tokenAddress} onChange={(event) => { setTokenAddress(event.target.value); setSelectedToken(null) }} onBlur={() => loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)} placeholder="Paste token CA" autoComplete="off" /></label>
-          <div className={`token-verification ${selectedToken ? 'verified' : ''}`} aria-live="polite">{isLookingUpToken ? 'Checking token on Pump.fun…' : selectedToken ? <><Icon name="check" size={19} /><span><strong>{selectedToken.name} (${selectedToken.symbol})</strong>Market cap {formatMarketCap(selectedToken.marketCap)}</span></> : 'Paste a contract address to verify the token.'}</div>
-          <button className="form-submit" onClick={advanceFromToken} disabled={isLookingUpToken}>Continue to setup <Icon name="arrowRight" size={18} /></button>
-        </div>}
+        <div className="form-group">
+          <label className="form-label">Stake Amount (SOL)</label>
+          <input
+            type="number"
+            className="form-input"
+            placeholder="Enter SOL amount..."
+            value={stakeAmount}
+            onChange={e => setStakeAmount(e.target.value)}
+            min="0.013"
+            max="10"
+            step="0.001"
+          />
+        </div>
 
-        {createStep === 2 && <div className="create-step">
-          <div className="step-intro"><span className="step-number">02</span><div><h3>Configure the matchup</h3><p>Set the stake and how long the performance window stays open.</p></div></div>
-          <fieldset className="form-group"><legend className="form-label">Battle duration</legend><div className="duration-grid">{DURATIONS.map((item) => <button type="button" key={item.value} className={selectedDuration === item.value ? 'selected' : ''} onClick={() => setSelectedDuration(item.value)} aria-pressed={selectedDuration === item.value}><strong>{item.time}</strong><span>{item.unit}</span></button>)}</div></fieldset>
-          <label className="form-group"><span className="form-label">Your stake</span><div className="stake-input"><input className="form-input mono" type="number" min="0.1" step="0.1" value={stakeAmount} onChange={(event) => setStakeAmount(event.target.value)} /><span>SOL</span></div><small>Minimum 0.1 SOL. Your challenger must match it.</small></label>
-          <div className="settlement-note"><Icon name="protocol" size={20} /><span><strong>Settlement metric</strong>Percentage change in market cap during the battle window.</span></div>
-          <div className="step-actions"><button className="secondary-button" onClick={() => setCreateStep(1)}>Back</button><button className="primary-button" onClick={advanceFromConfig}>Review battle <Icon name="arrowRight" size={18} /></button></div>
-        </div>}
+        <div className="stake-display">
+          <div className="stake-stat">
+            <span className="stake-display-label">Total pot <span>(matched)</span></span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2).toFixed(4)} SOL</span>
+          </div>
+          <div className="stake-stat">
+            <span className="stake-display-label">Platform fee <span>({formatFeePercent(feeBps)})</span></span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * feeRate).toFixed(6)} SOL</span>
+          </div>
+          <div className="stake-stat">
+            <span className="stake-display-label">Winner receives</span>
+            <span className="stake-display-value">{(parseFloat(stakeAmount || 0) * 2 * (1 - feeRate)).toFixed(4)} SOL</span>
+          </div>
+        </div>
 
-        {createStep === 3 && <div className="create-step">
-          <div className="step-intro"><span className="step-number">03</span><div><h3>Review your challenge</h3><p>Confirm every detail before requesting the wallet transaction.</p></div></div>
-          <div className="review-matchup"><div><span>Your token</span><strong>{selectedToken?.symbol}</strong></div><b>VS</b><div><span>Challenger</span><strong>OPEN</strong></div></div>
-          <dl className="review-list"><div><dt>Your stake</dt><dd>{stake.toFixed(4)} SOL</dd></div><div><dt>Total pot</dt><dd>{(stake * 2).toFixed(4)} SOL</dd></div><div><dt>Duration</dt><dd>{duration?.time} {duration?.unit}</dd></div><div><dt>Platform fee</dt><dd>{(stake * 2 * PLATFORM_FEE_RATE).toFixed(6)} SOL</dd></div><div><dt>Winner receives</dt><dd className="perf-up">{(stake * 2 * (1 - PLATFORM_FEE_RATE)).toFixed(4)} SOL</dd></div><div><dt>Network</dt><dd>Solana</dd></div></dl>
-          <div className="transaction-status"><Icon name={wallet.connected ? 'wallet' : 'warning'} size={19} /><span><strong>{wallet.connected ? 'Ready for wallet review' : 'Connect wallet to continue'}</strong>{isSubmitting ? 'Waiting for signature and confirmation…' : 'The transaction will not submit until you approve it.'}</span></div>
-          <div className="step-actions"><button className="secondary-button" onClick={() => setCreateStep(2)} disabled={isSubmitting}>Back</button><button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>{isSubmitting ? 'Confirming battle…' : wallet.connected ? 'Confirm & create battle' : 'Connect wallet to create'} <Icon name="arrowRight" size={18} /></button></div>
-        </div>}
+        {isOnchainEscrow && (
+          <p className="form-hint">
+            {holderFeeQuote?.initialized && holderFeeQuote.holderMint !== '11111111111111111111111111111111'
+              ? `Your verified holder balance sets this battle's ${formatFeePercent(feeBps)} fee. The rate is locked on-chain when you create it.`
+              : 'Standard fee: 1%. Holder discounts will activate after the protocol token CA is configured.'}
+          </p>
+        )}
+        {TREASURY_MODE && (
+          <p className="form-hint">
+            Your stake is sent to the protocol's dedicated Privy treasury. The verified {formatFeePercent(feeBps)} fee is locked when this battle is created; winner payment and the platform fee are sent automatically after settlement.
+          </p>
+        )}
+
+        <button className="form-submit" onClick={handleCreate} disabled={isSubmitting}>
+          {isSubmitting ? 'SAVING...' : '⚔ CREATE BATTLE'}
+        </button>
       </Modal>
 
-      <Modal isOpen={!!viewBattle} onClose={() => setViewBattle(null)} title={viewBattle ? `${viewBattle.tokenA.symbol} vs ${viewBattle.tokenB?.symbol || 'Open slot'}` : ''} size="wide">
-        {viewBattle && <>
-          <div className="battle-vs-display"><div className="bvd-side"><span>Creator</span><strong>{viewBattle.tokenA.symbol}</strong>{viewBattle.tokenA.perf !== undefined && <b className={`mono ${viewBattle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>{viewBattle.tokenA.perf >= 0 ? '+' : ''}{viewBattle.tokenA.perf}%</b>}<small>{viewBattle.creator}</small></div><div className="bvd-center"><CrownMark size={36} /><strong>VS</strong>{viewBattle.status === 'active' && <span className="mono">{formatTime(Math.max(0, viewBattle.endTime - currentTime))}</span>}</div><div className="bvd-side"><span>Challenger</span><strong>{viewBattle.tokenB?.symbol ?? 'OPEN'}</strong>{viewBattle.tokenB?.perf !== undefined && <b className={`mono ${viewBattle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>{viewBattle.tokenB.perf >= 0 ? '+' : ''}{viewBattle.tokenB.perf}%</b>}<small>{viewBattle.opponent ?? 'Awaiting player'}</small></div></div>
-          <dl className="battle-info-row"><div><dt>Your stake</dt><dd>{viewBattle.stake} SOL</dd></div><div><dt>Total pot</dt><dd>{viewBattle.pot} SOL</dd></div><div><dt>Duration</dt><dd>{viewBattle.durationLabel}</dd></div><div><dt>Fee</dt><dd>0.25%</dd></div><div><dt>Settlement</dt><dd>% performance</dd></div></dl>
-          {viewBattle.status === 'waiting' && <div className="join-confirm"><div className="join-heading"><h3>Join this battle?</h3><p>Choose the token that will challenge {viewBattle.tokenA.symbol}, then confirm the matched deposit.</p></div><label className="form-group"><span className="form-label">Your Pump.fun token</span><input className="form-input mono" value={joinTokenAddress} onChange={(event) => { setJoinTokenAddress(event.target.value); setJoinToken(null) }} onBlur={() => loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)} placeholder="Paste token CA" /></label><div className={`token-verification ${joinToken ? 'verified' : ''}`} aria-live="polite">{isLookingUpJoinToken ? 'Checking token…' : joinToken ? <><Icon name="check" size={19} /><span><strong>{joinToken.name} (${joinToken.symbol})</strong>Market cap {formatMarketCap(joinToken.marketCap)}</span></> : 'Verify a token before depositing.'}</div><div className="transaction-status"><Icon name="wallet" size={19} /><span><strong>{viewBattle.stake} SOL matched deposit</strong>{isSubmitting ? 'Waiting for signature and network confirmation…' : 'Review the wallet request before confirming.'}</span></div><div className="step-actions"><button className="secondary-button" onClick={() => setViewBattle(null)} disabled={isSubmitting}>Cancel</button><button className="form-submit" onClick={handleJoin} disabled={isSubmitting || !joinToken}>{isSubmitting ? 'Confirming deposit…' : 'Confirm & deposit'} <Icon name="arrowRight" size={18} /></button></div></div>}
-          {(viewBattle.status === 'finished' || viewBattle.status === 'settled') && <div className="result-section"><CrownMark size={72} /><span>Battle winner</span><strong>{viewBattle.winner ?? 'Pending settlement'}</strong></div>}
-        </>}
+      {/* View Battle Modal */}
+      <Modal
+        isOpen={!!viewBattle}
+        onClose={() => setViewBattle(null)}
+        title={viewBattle ? `${viewBattle.tokenA.symbol} vs ${viewBattle.tokenB?.symbol || '???'}` : ''}
+        size="wide"
+      >
+        {viewBattle && (
+          <>
+            {(() => {
+              const isCreator = wallet.connected && viewBattle.creatorAddress === wallet.address
+              const isParticipant = isCreator || (wallet.connected && viewBattle.opponentAddress === wallet.address)
+              const canCancel = isOnchainEscrow && viewBattle.status === 'waiting' && isCreator
+              const canRefund = isOnchainEscrow && viewBattle.status === 'active' && isParticipant
+                && viewBattle.endTime && currentTime >= viewBattle.endTime + REFUND_DELAY_SECONDS
+              const refundAt = viewBattle.endTime ? new Date((viewBattle.endTime + REFUND_DELAY_SECONDS) * 1000).toLocaleString() : null
+              return (
+                <>
+            <div className="battle-vs-display">
+              <div className="bvd-side a">
+                <div className="bvd-symbol">{viewBattle.tokenA.symbol}</div>
+                {viewBattle.tokenA.perf !== undefined && (
+                  <div className={`bvd-perf ${viewBattle.tokenA.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
+                    {viewBattle.tokenA.perf >= 0 ? '+' : ''}{viewBattle.tokenA.perf}%
+                  </div>
+                )}
+                <div className="bvd-mc">MC: {viewBattle.tokenA.mc}</div>
+                <div className="bvd-player">{viewBattle.creator}</div>
+              </div>
+
+              <div className="bvd-center">
+                <div className="bvd-vs-text">VS</div>
+                {viewBattle.status === 'active' && (
+                  <div className="bvd-timer-big">
+                    {formatTime(Math.max(0, viewBattle.endTime - currentTime))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bvd-side b">
+                {viewBattle.tokenB ? (
+                  <>
+                    <div className="bvd-symbol">{viewBattle.tokenB.symbol}</div>
+                    {viewBattle.tokenB.perf !== undefined && (
+                      <div className={`bvd-perf ${viewBattle.tokenB.perf >= 0 ? 'perf-up' : 'perf-down'}`}>
+                        {viewBattle.tokenB.perf >= 0 ? '+' : ''}{viewBattle.tokenB.perf}%
+                      </div>
+                    )}
+                    <div className="bvd-mc">MC: {viewBattle.tokenB.mc}</div>
+                    <div className="bvd-player">{viewBattle.opponent}</div>
+                  </>
+                ) : (
+                  <div className="bvd-waiting">Awaiting<br/>Challenger</div>
+                )}
+              </div>
+            </div>
+
+            <div className="battle-info-row">
+              <div className="battle-info-item">
+                <label>Stake</label>
+                <span>{viewBattle.stake} SOL</span>
+              </div>
+              <div className="battle-info-item">
+                <label>Total Pot</label>
+                <span>{viewBattle.pot} SOL</span>
+              </div>
+              <div className="battle-info-item">
+                <label>Duration</label>
+                <span>{viewBattle.durationLabel}</span>
+              </div>
+            </div>
+
+            {(viewBattle.onchainBattleAddress || viewBattle.treasuryAddress || viewBattle.creatorDepositSignature || viewBattle.opponentDepositSignature || viewBattle.settlementSignature) && (
+              <section className="onchain-activity" aria-label="On-chain activity">
+                <div className="onchain-activity-heading">
+                  <div>
+                    <strong>On-chain activity</strong>
+                    <span>Verify every deposit and payment directly on Solana Explorer.</span>
+                  </div>
+                  <span className="onchain-network">{viewBattle.network === 'devnet' ? 'DEVNET' : 'MAINNET'}</span>
+                </div>
+                <div className="onchain-activity-list">
+                  <a href={solanaExplorerAddress(viewBattle.onchainBattleAddress || viewBattle.treasuryAddress, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                    <span className="onchain-activity-label">{viewBattle.onchainBattleAddress ? 'Battle escrow account' : 'Settlement treasury'}</span>
+                    <span>View account ↗</span>
+                  </a>
+                  {solanaExplorerTransaction(viewBattle.creatorDepositSignature, viewBattle.network) && (
+                    <a href={solanaExplorerTransaction(viewBattle.creatorDepositSignature, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                      <span className="onchain-activity-label">Creator deposit</span>
+                      <span>View transaction ↗</span>
+                    </a>
+                  )}
+                  {solanaExplorerTransaction(viewBattle.opponentDepositSignature, viewBattle.network) && (
+                    <a href={solanaExplorerTransaction(viewBattle.opponentDepositSignature, viewBattle.network)} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                      <span className="onchain-activity-label">Challenger deposit</span>
+                      <span>View transaction ↗</span>
+                    </a>
+                  )}
+                  {transactionSignatures(viewBattle.settlementSignature).map((signature, index) => {
+                    const settlementUrl = solanaExplorerTransaction(signature, viewBattle.network)
+                    if (!settlementUrl) return null
+                    return (
+                      <a key={signature} href={settlementUrl} target="_blank" rel="noreferrer" className="onchain-activity-item">
+                        <span className="onchain-activity-label">{viewBattle.escrowState === 'refunded' ? 'Refund payment' : `Settlement & payouts${index ? ` #${index + 1}` : ''}`}</span>
+                        <span>{viewBattle.escrowState === 'refunded' ? 'View refund ↗' : 'Winner payment + fee ↗'}</span>
+                      </a>
+                    )
+                  })}
+                </div>
+              </section>
+            )}
+
+            {isOnchainEscrow && viewBattle.status === 'active' && (
+              <div className="escrow-status" role="status">
+                <strong>Escrow funded on {NETWORK_LABEL}</strong>
+                <span>The {viewBattle.pot} SOL pot is locked. At completion, the oracle records both results, sends the fee locked for this battle, and pays the winner automatically.</span>
+                {refundAt && <small>Fallback: either participant can refund both stakes after {refundAt} if settlement is still unavailable.</small>}
+              </div>
+            )}
+
+            {!isOnchainEscrow && viewBattle.status === 'active' && viewBattle.tokenA.perf !== undefined && viewBattle.tokenB?.perf !== undefined && (
+              <>
+                <div className="progress-bar-wrap">
+                  <div
+                    className="progress-bar"
+                    style={{
+                      width: `${Math.min(100, Math.max(5, 50 + (viewBattle.tokenA.perf - viewBattle.tokenB.perf)))}%`
+                    }}
+                  />
+                </div>
+                <div className="leader-badge">
+                  🏆 {viewBattle.tokenA.perf > viewBattle.tokenB.perf ? viewBattle.tokenA.symbol : viewBattle.tokenB.symbol} IS LEADING
+                </div>
+              </>
+            )}
+
+            {viewBattle.status === 'waiting' && !isCreator && (
+              <>
+                <div className="form-group">
+                  <label className="form-label">Your Token</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Paste a Pump.fun contract address (CA)..."
+                    value={joinTokenAddress}
+                    onChange={event => {
+                      setJoinTokenAddress(event.target.value)
+                      setJoinToken(null)
+                    }}
+                    onBlur={() => loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        loadToken(joinTokenAddress, setJoinToken, setIsLookingUpJoinToken)
+                      }
+                    }}
+                  />
+                  {isLookingUpJoinToken && <p className="form-hint">Checking Pump.fun...</p>}
+                  {joinToken && <p className="form-hint">Verified: {joinToken.name} (${joinToken.symbol}) · {formatMarketCap(joinToken.marketCap)}</p>}
+                </div>
+                <button className="form-submit" onClick={handleJoin} disabled={isSubmitting}>
+                  {isSubmitting ? 'SAVING...' : `⚔ JOIN BATTLE (${viewBattle.stake} SOL)`}
+                </button>
+              </>
+            )}
+
+            {canCancel && (
+              <button className="form-submit" onClick={handleCancel} disabled={isSubmitting}>
+                {isSubmitting ? 'PROCESSING...' : 'CANCEL BATTLE & RETURN STAKE'}
+              </button>
+            )}
+
+            {canRefund && (
+              <button className="form-submit" onClick={handleRefund} disabled={isSubmitting}>
+                {isSubmitting ? 'PROCESSING...' : 'REFUND BOTH STAKES'}
+              </button>
+            )}
+
+            {(viewBattle.status === 'finished' || viewBattle.status === 'settled') && viewBattle.winner && (
+              <div className="result-section">
+                <div className="result-trophy">🏆</div>
+                <div className="result-winner-label">WINNER</div>
+                <div className="result-winner-token">{viewBattle.winner}</div>
+              </div>
+            )}
+                </>
+              )
+            })()}
+          </>
+        )}
       </Modal>
     </section>
   )

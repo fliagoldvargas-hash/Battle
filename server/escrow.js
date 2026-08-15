@@ -8,6 +8,13 @@ function configurationError(message) {
   return error
 }
 
+function depositVerificationError(message, code, status = 409) {
+  const error = new Error(message)
+  error.code = code
+  error.status = status
+  return error
+}
+
 export function escrowConfiguration() {
   const treasury = process.env.ESCROW_TREASURY_ADDRESS
   if (!treasury || !SOLANA_ADDRESS_PATTERN.test(treasury)) {
@@ -16,8 +23,11 @@ export function escrowConfiguration() {
   return {
     treasury,
     feeTreasury: process.env.ESCROW_FEE_TREASURY_ADDRESS || null,
-    programId: process.env.ESCROW_PROGRAM_ID || null,
-    required: process.env.ESCROW_REQUIRED === 'true',
+    // Treasury mode has no on-chain program. Keep this field for historic
+    // battle rows only; new Mainnet deposits are normal System transfers.
+    programId: process.env.BATTLE_SETTLEMENT_MODE === 'treasury' ? null : process.env.ESCROW_PROGRAM_ID || null,
+    required: process.env.BATTLE_SETTLEMENT_MODE === 'treasury' || process.env.ESCROW_REQUIRED === 'true',
+    mode: process.env.BATTLE_SETTLEMENT_MODE || 'onchain',
     rpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   }
 }
@@ -40,7 +50,7 @@ function parsedInstructions(transaction) {
   return [...instructions, ...inner]
 }
 
-export async function verifyStakeTransfer({ signature, walletAddress, expectedLamports }) {
+export async function verifyStakeTransfer({ signature, walletAddress, expectedLamports, lastValidBlockHeight }) {
   const config = escrowConfiguration()
   if (!SIGNATURE_PATTERN.test(signature || '')) {
     const error = new Error('Invalid Solana transaction signature.')
@@ -63,10 +73,22 @@ export async function verifyStakeTransfer({ signature, walletAddress, expectedLa
     commitment: 'finalized',
     maxSupportedTransactionVersion: 0,
   }])
-  if (!transaction || transaction.meta?.err) {
-    const error = new Error('The Solana deposit is not finalized or failed.')
-    error.status = 400
-    throw error
+  if (!transaction) {
+    const [statuses, currentBlockHeight] = await Promise.all([
+      rpcCall(config.rpcUrl, 'getSignatureStatuses', [[signature], { searchTransactionHistory: true }]),
+      rpcCall(config.rpcUrl, 'getBlockHeight', [{ commitment: 'processed' }]),
+    ])
+    const status = statuses?.value?.[0]
+    if (status?.err) {
+      throw depositVerificationError('Solana rejected the deposit transaction. No battle was created.', 'DEPOSIT_FAILED', 400)
+    }
+    if (Number.isSafeInteger(Number(lastValidBlockHeight)) && Number(currentBlockHeight) > Number(lastValidBlockHeight)) {
+      throw depositVerificationError('The wallet approval expired before Solana could send it. No SOL was transferred; a fresh approval is required.', 'DEPOSIT_EXPIRED')
+    }
+    throw depositVerificationError('The Solana network is confirming your deposit. Please wait.', 'DEPOSIT_PENDING')
+  }
+  if (transaction.meta?.err) {
+    throw depositVerificationError('Solana rejected the deposit transaction. No battle was created.', 'DEPOSIT_FAILED', 400)
   }
 
   const transfer = parsedInstructions(transaction).find((instruction) => (
@@ -74,10 +96,10 @@ export async function verifyStakeTransfer({ signature, walletAddress, expectedLa
     && instruction?.parsed?.type === 'transfer'
     && instruction.parsed.info?.destination === config.treasury
     && instruction.parsed.info?.source === walletAddress
-    && Number(instruction.parsed.info?.lamports) >= Number(expectedLamports)
+    && Number(instruction.parsed.info?.lamports) === Number(expectedLamports)
   ))
   if (!transfer) {
-    const error = new Error('The finalized transaction does not transfer the required stake to the escrow treasury.')
+    const error = new Error('The finalized transaction does not transfer the exact battle stake to the treasury.')
     error.status = 400
     throw error
   }

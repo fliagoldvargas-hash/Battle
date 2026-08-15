@@ -1,6 +1,6 @@
 import { PrivyClient } from '@privy-io/node'
-import { createServerSupabase } from './lib/serverSupabase.js'
-import { recordDeposit, escrowConfiguration } from './lib/escrow.js'
+import { createServerSupabase } from '../server/serverSupabase.js'
+import { recordDeposit, escrowConfiguration } from '../server/escrow.js'
 
 const send = (response, status, body) => response.status(status).json(body)
 
