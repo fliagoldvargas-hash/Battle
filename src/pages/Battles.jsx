@@ -30,7 +30,7 @@ export default function Battles() {
   const [createOpen, setCreateOpen] = useState(false)
   const [viewBattle, setViewBattle] = useState(null)
   const [selectedDuration, setSelectedDuration] = useState(3600)
-  const [stakeAmount, setStakeAmount] = useState('0.013')
+  const [stakeAmount, setStakeAmount] = useState('0.014')
   const [selectedToken, setSelectedToken] = useState(null)
   const [tokenAddress, setTokenAddress] = useState('')
   const [joinToken, setJoinToken] = useState(null)
@@ -237,8 +237,8 @@ export default function Battles() {
     }
     const stake = Number(stakeAmount)
     const token = selectedToken ?? await loadToken(tokenAddress, setSelectedToken, setIsLookingUpToken)
-    if (!token || !Number.isFinite(stake) || stake < 0.013) {
-      notify('error', 'Invalid Battle', 'Enter a valid Pump.fun CA and a stake of at least 0.013 SOL')
+    if (!token || !Number.isFinite(stake) || stake < 0.014) {
+      notify('error', 'Invalid Battle', 'Enter a valid Pump.fun CA and a stake of at least 0.014 SOL')
       return
     }
 
@@ -274,7 +274,7 @@ export default function Battles() {
       setCreateOpen(false)
       setSelectedToken(null)
       setTokenAddress('')
-      setStakeAmount('0.013')
+      setStakeAmount('0.014')
     } catch (error) {
       const message = actionErrorMessage(error, 'The wallet could not create this battle. Approve the wallet transaction and try again.')
       console.error('Battle creation failed', error)
@@ -527,7 +527,7 @@ export default function Battles() {
             placeholder="Enter SOL amount..."
             value={stakeAmount}
             onChange={e => setStakeAmount(e.target.value)}
-            min="0.013"
+            min="0.014"
             max="10"
             step="0.001"
           />
