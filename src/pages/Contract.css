@@ -91,6 +91,7 @@
 .holder-tier:last-child { border-bottom: 0; }
 .holder-tier strong { color: var(--win); font: 700 .85rem/1 var(--font-mono); }
 
+.protocol-admin-card, .custody-disclosure { display: none !important; }
 .admin-contract-card { border-color: rgba(52, 199, 89, .28); }
 .admin-contract-card::before { background: var(--win); }
 .holder-form { display: grid; gap: 16px; margin-top: 18px; }

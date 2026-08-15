@@ -353,7 +353,7 @@ export default function Contract() {
         )}
 
         {configurationEnabled && wallet.connected && !isAdmin && (
-          <div className="contract-card animate-in stagger-3"><div className="contract-title">Protocol administration</div><p className="contract-copy">{protocolAdmin ? <>The connected wallet <span className="contract-copy-mono">{wallet.address}</span> is not the configured protocol owner. Connect <span className="contract-copy-mono">{protocolAdmin}</span> to change protocol settings.</> : 'Protocol-owner access has not been configured in this environment yet.'}</p></div>
+          <div className="contract-card protocol-admin-card animate-in stagger-3"><div className="contract-title">Protocol administration</div><p className="contract-copy">{protocolAdmin ? <>The connected wallet <span className="contract-copy-mono">{wallet.address}</span> is not the configured protocol owner. Connect <span className="contract-copy-mono">{protocolAdmin}</span> to change protocol settings.</> : 'Protocol-owner access has not been configured in this environment yet.'}</p></div>
         )}
 
         <div className="contract-card custody-disclosure animate-in stagger-3">
