@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useConnectWallet, useLoginWithSiws, usePrivy } from '@privy-io/react-auth'
 import { useSignAndSendTransaction, useWallets } from '@privy-io/react-auth/solana'
 import { notify } from '../components/notificationService'
@@ -27,6 +27,22 @@ function walletErrorMessage(error) {
   return message || 'The wallet signature could not be verified. Please try again.'
 }
 
+function addressFromWalletAccount(account) {
+  if (!account) return ''
+  if (typeof account === 'string') return account
+  if (typeof account.address === 'string') return account.address
+  if (typeof account.toBase58 === 'function') return account.toBase58()
+  return ''
+}
+
+function liveAddressForWallet(solanaWallet, accounts) {
+  const accountList = Array.isArray(accounts) ? accounts : solanaWallet?.standardWallet?.accounts
+  return addressFromWalletAccount(solanaWallet?.provider?.publicKey)
+    || addressFromWalletAccount(accountList?.[0])
+    || solanaWallet?.address
+    || ''
+}
+
 export function WalletProvider({ children }) {
   const { authenticated, getAccessToken, logout, ready: privyReady, user } = usePrivy()
   const { wallets, ready: walletsReady } = useWallets()
@@ -34,12 +50,31 @@ export function WalletProvider({ children }) {
   const { generateSiwsMessage, loginWithSiws } = useLoginWithSiws()
   const authenticationInFlight = useRef(false)
   const connectionInFlight = useRef(false)
+  const sessionInvalidationInFlight = useRef(false)
   const [isConnecting, setIsConnecting] = useState(false)
   // Privy can expose more than one linked Solana wallet in the same browser.
   // Keep the last wallet deliberately selected by the user; selecting the
   // first linked wallet made a second wallet appear connected while the app
   // still attempted a battle action with the creator's address.
   const [selectedWalletAddress, setSelectedWalletAddress] = useState('')
+  const [sessionWalletAddress, setSessionWalletAddress] = useState('')
+  const [liveWalletAddress, setLiveWalletAddress] = useState('')
+
+  const invalidateWalletSession = useCallback(async () => {
+    if (sessionInvalidationInFlight.current) return
+
+    sessionInvalidationInFlight.current = true
+    setSelectedWalletAddress('')
+    setSessionWalletAddress('')
+    notify('info', 'Wallet Changed', 'Phantom or Solflare switched accounts. Reconnect the active wallet before creating or joining a battle.')
+    try {
+      await logout()
+    } catch (error) {
+      console.warn('Unable to close the previous Privy session after a wallet change.', error)
+    } finally {
+      sessionInvalidationInFlight.current = false
+    }
+  }, [logout])
 
   const authenticateSolanaWallet = useCallback(async (solanaWallet) => {
     // Token Battle intentionally uses one wallet per session. Linking a second
@@ -51,6 +86,7 @@ export function WalletProvider({ children }) {
     if (authenticationInFlight.current) return
     if (authenticated && alreadyLinked) {
       setSelectedWalletAddress(solanaWallet.address)
+      setSessionWalletAddress(solanaWallet.address)
       connectionInFlight.current = false
       setIsConnecting(false)
       return
@@ -60,6 +96,7 @@ export function WalletProvider({ children }) {
       if (authenticated) {
         await logout()
         setSelectedWalletAddress('')
+        setSessionWalletAddress('')
       }
       const message = await generateSiwsMessage({ address: solanaWallet.address })
       const encodedMessage = new TextEncoder().encode(message)
@@ -81,6 +118,7 @@ export function WalletProvider({ children }) {
 
       await loginWithSiws(credentials)
       setSelectedWalletAddress(solanaWallet.address)
+      setSessionWalletAddress(solanaWallet.address)
     } catch (error) {
       console.error('Solana wallet authentication failed', error)
       if (!isUserCancellation(error)) {
@@ -113,12 +151,57 @@ export function WalletProvider({ children }) {
     return linkedWallets.find((connectedWallet) => connectedWallet.address === selectedWalletAddress) ?? linkedWallets[0]
   }, [selectedWalletAddress, user, wallets])
 
+  useEffect(() => {
+    if (!activeWallet) {
+      setLiveWalletAddress('')
+      return undefined
+    }
+
+    const standardWallet = activeWallet.standardWallet
+    const updateActiveAccount = (accounts) => {
+      const nextAddress = liveAddressForWallet(activeWallet, accounts)
+      setLiveWalletAddress(nextAddress)
+      if (authenticated && sessionWalletAddress && nextAddress && nextAddress !== sessionWalletAddress) {
+        void invalidateWalletSession()
+      }
+    }
+
+    updateActiveAccount(standardWallet?.accounts)
+
+    const cleanups = []
+    const events = standardWallet?.features?.['standard:events']
+    if (events && typeof events.on === 'function') {
+      cleanups.push(events.on('change', ({ accounts }) => updateActiveAccount(accounts)))
+    }
+
+    const provider = activeWallet.provider
+    if (provider && typeof provider.on === 'function') {
+      const onAccountChanged = (account) => updateActiveAccount(account ? [account] : [])
+      provider.on('accountChanged', onAccountChanged)
+      cleanups.push(() => {
+        if (typeof provider.removeListener === 'function') provider.removeListener('accountChanged', onAccountChanged)
+      })
+    }
+
+    return () => cleanups.forEach((cleanup) => cleanup?.())
+  }, [activeWallet, authenticated, invalidateWalletSession, sessionWalletAddress])
+
+  const currentWalletAddress = liveWalletAddress || activeWallet?.address || ''
+
+  const ensureWalletSession = useCallback(() => {
+    if (!authenticated || !activeWallet || !sessionWalletAddress || currentWalletAddress !== sessionWalletAddress) {
+      void invalidateWalletSession()
+      throw new Error('The active wallet account changed. Reconnect the wallet before creating or joining a battle.')
+    }
+    return activeWallet
+  }, [activeWallet, authenticated, currentWalletAddress, invalidateWalletSession, sessionWalletAddress])
+
   const wallet = useMemo(() => ({
-    connected: Boolean(authenticated && activeWallet),
-    address: activeWallet?.address ?? '',
+    connected: Boolean(authenticated && activeWallet && sessionWalletAddress && currentWalletAddress === sessionWalletAddress),
+    address: sessionWalletAddress,
     balance: null,
     provider: activeWallet?.standardWallet?.name ?? null,
-  }), [activeWallet, authenticated])
+  }), [activeWallet, authenticated, currentWalletAddress, sessionWalletAddress])
 
   const connect = useCallback(async () => {
     if (!privyReady) {
@@ -126,7 +209,13 @@ export function WalletProvider({ children }) {
       return
     }
 
-    if ((authenticated && activeWallet) || connectionInFlight.current || authenticationInFlight.current) return
+    const sessionMatchesActiveWallet = Boolean(
+      authenticated
+      && activeWallet
+      && sessionWalletAddress
+      && currentWalletAddress === sessionWalletAddress,
+    )
+    if (sessionMatchesActiveWallet || connectionInFlight.current || authenticationInFlight.current || sessionInvalidationInFlight.current) return
 
     connectionInFlight.current = true
     setIsConnecting(true)
@@ -155,7 +244,7 @@ export function WalletProvider({ children }) {
         notify('error', 'Wallet Connection Failed', 'Could not open the Solana wallet selector. Please try again.')
       }
     }
-  }, [activeWallet, authenticated, authenticateSolanaWallet, connectWallet, privyReady, wallets, walletsReady])
+  }, [activeWallet, authenticated, authenticateSolanaWallet, connectWallet, currentWalletAddress, privyReady, sessionWalletAddress, wallets, walletsReady])
 
   const disconnect = useCallback(async () => {
     if (connectionInFlight.current || authenticationInFlight.current) return
@@ -172,6 +261,7 @@ export function WalletProvider({ children }) {
       try {
         await logout()
         setSelectedWalletAddress('')
+        setSessionWalletAddress('')
         notify('info', 'Wallet Disconnected', 'Your Privy session and wallet connection have been closed')
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Could not close your Privy session. Please try again.'
@@ -184,8 +274,8 @@ export function WalletProvider({ children }) {
   }, [activeWallet, logout])
 
   const depositStake = useCallback((lamports, recentBlockhash) => {
-    if (!activeWallet) throw new Error('Connect a Solana wallet before depositing a stake.')
-    if (typeof activeWallet.signAndSendTransaction !== 'function') {
+    const currentWallet = ensureWalletSession()
+    if (typeof currentWallet.signAndSendTransaction !== 'function') {
       throw new Error('Your connected wallet cannot send Solana transactions. Disconnect it and connect Phantom or Solflare again.')
     }
 
@@ -194,12 +284,12 @@ export function WalletProvider({ children }) {
     // can open Privy's internal transaction UI instead of the extension and
     // leave Opera on a black overlay before any signature request is shown.
     return sendEscrowDeposit({
-      wallet: activeWallet,
+      wallet: currentWallet,
       lamports,
       recentBlockhash,
-      signAndSendTransaction: ({ transaction, chain }) => activeWallet.signAndSendTransaction({ transaction, chain }),
+      signAndSendTransaction: ({ transaction, chain }) => currentWallet.signAndSendTransaction({ transaction, chain }),
     })
-  }, [activeWallet])
+  }, [ensureWalletSession])
 
   const escrowConfigured = Boolean(import.meta.env.VITE_ESCROW_TREASURY_ADDRESS)
 
@@ -209,6 +299,7 @@ export function WalletProvider({ children }) {
       connect,
       disconnect,
       depositStake,
+      ensureWalletSession,
       escrowConfigured,
       solanaWallet: activeWallet,
       signAndSendSolanaTransaction: signAndSendTransaction,
@@ -232,6 +323,7 @@ export function WalletUnavailableProvider({ children }) {
     connect,
     disconnect: () => {},
     depositStake: async () => { throw new Error('Privy is not configured.') },
+    ensureWalletSession: () => { throw new Error('Privy is not configured.') },
     escrowConfigured: false,
     solanaWallet: null,
     signAndSendSolanaTransaction: async () => { throw new Error('Privy is not configured.') },

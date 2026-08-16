@@ -86,7 +86,7 @@ export default function Home() {
             </div>
           </div>
           <div className="project-token-ca" aria-label="FLIPPEN token contract address">
-            <span className="project-token-ca-label">FLIPPEN TOKEN CA</span>
+            <span className="project-token-ca-label">FLIPPEN CA</span>
             <code>{PROJECT_TOKEN_CA}</code>
             <button
               type="button"

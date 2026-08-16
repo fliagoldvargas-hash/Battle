@@ -127,7 +127,7 @@
 
 .project-token-ca-label {
   color: var(--accent-gold);
-  font: 600 0.62rem/1 var(--font-mono);
+  font: 600 0.58rem/1 var(--font-mono);
   letter-spacing: 0.12em;
   white-space: nowrap;
 }
@@ -136,8 +136,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font: 600 0.75rem/1.35 var(--font-mono);
-  text-overflow: ellipsis;
+  font: 600 0.68rem/1.35 var(--font-mono);
   white-space: nowrap;
 }
 

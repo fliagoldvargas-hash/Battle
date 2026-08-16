@@ -1,4 +1,5 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import BattleCard from '../components/BattleCard'
 import Modal from '../components/Modal'
 import { DURATIONS } from '../data/mockData'
@@ -23,7 +24,8 @@ function actionErrorMessage(error, fallback) {
 }
 
 export default function Battles() {
-  const { wallet, getAccessToken, depositStake, escrowConfigured, solanaWallet, signAndSendSolanaTransaction } = useWallet()
+  const { wallet, getAccessToken, depositStake, ensureWalletSession, escrowConfigured, signAndSendSolanaTransaction } = useWallet()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [battles, setBattles] = useState([])
   const [filter, setFilter] = useState('all')
   const [search, setSearch] = useState('')
@@ -45,6 +47,15 @@ export default function Battles() {
   const recoveredWallet = useRef('')
   const escrowConfiguredForDeployment = isOnchainEscrowEnabled()
   const isOnchainEscrow = escrowConfiguredForDeployment && onchainStatus?.configured === true
+
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return
+
+    setCreateOpen(true)
+    const nextSearchParams = new URLSearchParams(searchParams)
+    nextSearchParams.delete('create')
+    setSearchParams(nextSearchParams, { replace: true })
+  }, [searchParams, setSearchParams])
 
   useEffect(() => {
     if (!escrowConfiguredForDeployment) return undefined
@@ -186,7 +197,7 @@ export default function Battles() {
     return null
   }
 
-  const completeTreasuryDeposit = async ({ prepared, action, token }) => {
+  const completeTreasuryDeposit = async ({ prepared, action, token, walletAddress }) => {
     let currentPrepared = prepared
 
     // A Solana blockhash is intentionally short-lived. If a user leaves the
@@ -200,7 +211,7 @@ export default function Battles() {
       try {
         return await confirmBattleDeposit({
           getAccessToken,
-          walletAddress: wallet.address,
+          walletAddress,
           action,
           token,
           depositIntentId: currentPrepared.depositIntentId,
@@ -212,7 +223,7 @@ export default function Battles() {
         notify('info', 'Refreshing Wallet Approval', 'The first Solana approval expired before it was sent. No SOL was transferred; please approve the fresh request.')
         currentPrepared = await refreshBattleDepositBlockhash({
           getAccessToken,
-          walletAddress: wallet.address,
+          walletAddress,
           depositIntentId: currentPrepared.depositIntentId,
         })
       }
@@ -252,15 +263,17 @@ export default function Battles() {
     setCreateError('')
     setIsSubmitting(true)
     try {
+      const currentWallet = ensureWalletSession()
+      const walletAddress = currentWallet.address
       const newBattle = isOnchainEscrowEnabled()
         ? await (async () => {
           const onchain = await createOnchainBattle({
-            wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+            wallet: currentWallet, signAndSendTransaction: signAndSendSolanaTransaction,
             tokenMint: token.mint, stakeLamports: Math.round(stake * 1_000_000_000), durationSeconds: selectedDuration,
           })
           try {
             return await syncOnchainBattle({
-              getAccessToken, walletAddress: wallet.address,
+              getAccessToken, walletAddress,
               body: { action: 'create', ...onchain },
             })
           } catch (syncError) {
@@ -271,10 +284,10 @@ export default function Battles() {
         })()
         : await (async () => {
           const prepared = await createBattle({
-            getAccessToken, walletAddress: wallet.address, token: { mint: token.mint },
+            getAccessToken, walletAddress, token: { mint: token.mint },
             stakeSol: stake, durationSeconds: selectedDuration,
           })
-          return completeTreasuryDeposit({ prepared, action: 'create', token: { mint: token.mint } })
+          return completeTreasuryDeposit({ prepared, action: 'create', token: { mint: token.mint }, walletAddress })
         })()
       setBattles(currentBattles => [newBattle, ...currentBattles])
       notify('success', 'Battle Created!', `${token.symbol} battle was saved`)
@@ -326,15 +339,17 @@ export default function Battles() {
 
     setIsSubmitting(true)
     try {
+      const currentWallet = ensureWalletSession()
+      const walletAddress = currentWallet.address
       let joinedBattle
       if (isOnchainEscrowEnabled()) {
         const onchain = await joinOnchainBattle({
-          wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+          wallet: currentWallet, signAndSendTransaction: signAndSendSolanaTransaction,
           battleIdHex: viewBattle.onchainBattleId, tokenMint: token.mint,
         })
         try {
           joinedBattle = await syncOnchainBattle({
-            getAccessToken, walletAddress: wallet.address,
+            getAccessToken, walletAddress,
             body: { action: 'join', ...onchain, battleId: viewBattle.onchainBattleId },
           })
         } catch (syncError) {
@@ -343,8 +358,8 @@ export default function Battles() {
         }
       } else {
         joinedBattle = await (async () => {
-          const prepared = await joinBattle({ getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id })
-          return completeTreasuryDeposit({ prepared, action: 'join', token: { mint: token.mint } })
+          const prepared = await joinBattle({ getAccessToken, walletAddress, battleId: viewBattle.id })
+          return completeTreasuryDeposit({ prepared, action: 'join', token: { mint: token.mint }, walletAddress })
         })()
       }
       setBattles(currentBattles => currentBattles.map(battle => battle.id === joinedBattle.id ? joinedBattle : battle))
@@ -361,18 +376,20 @@ export default function Battles() {
     if (!viewBattle) return
     setIsSubmitting(true)
     try {
+      const currentWallet = ensureWalletSession()
+      const walletAddress = currentWallet.address
       if (isOnchainEscrow) {
         const onchain = await cancelOnchainBattle({
-          wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+          wallet: currentWallet, signAndSendTransaction: signAndSendSolanaTransaction,
           battleIdHex: viewBattle.onchainBattleId,
         })
         await syncOnchainEscrowAction({
-          getAccessToken, walletAddress: wallet.address,
+          getAccessToken, walletAddress,
           body: { action: 'cancel', ...onchain },
         })
       } else {
         await cancelBattle({
-          getAccessToken, walletAddress: wallet.address, battleId: viewBattle.id,
+          getAccessToken, walletAddress, battleId: viewBattle.id,
         })
       }
       setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
@@ -389,14 +406,16 @@ export default function Battles() {
     if (!viewBattle || !isOnchainEscrow) return
     setIsSubmitting(true)
     try {
+      const currentWallet = ensureWalletSession()
+      const walletAddress = currentWallet.address
       const onchain = await refundExpiredOnchainBattle({
-        wallet: solanaWallet, signAndSendTransaction: signAndSendSolanaTransaction,
+        wallet: currentWallet, signAndSendTransaction: signAndSendSolanaTransaction,
         battleIdHex: viewBattle.onchainBattleId,
         creatorAddress: viewBattle.creatorAddress,
         opponentAddress: viewBattle.opponentAddress,
       })
       await syncOnchainEscrowAction({
-        getAccessToken, walletAddress: wallet.address,
+        getAccessToken, walletAddress,
         body: { action: 'refund', ...onchain },
       })
       setBattles(currentBattles => currentBattles.filter((battle) => battle.id !== viewBattle.id))
@@ -435,12 +454,6 @@ export default function Battles() {
           <div className="devnet-notice" role="status">
             <strong>{NETWORK === 'devnet' ? 'DEVNET TEST MODE' : 'MAINNET ESCROW'}</strong>
             <span>{NETWORK === 'devnet' ? 'Uses test SOL only. ' : ''}The oracle compares both tokens to four decimals and settles completed battles automatically.</span>
-          </div>
-        )}
-        {TREASURY_MODE && (
-          <div className="devnet-notice" role="status">
-            <strong>MAINNET TREASURY</strong>
-            <span>Each deposit is verified on Solana before the battle activates. The winner and the locked platform fee are paid automatically after settlement.</span>
           </div>
         )}
       </div>
