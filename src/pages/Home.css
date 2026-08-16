@@ -87,10 +87,15 @@
 
 .hero-actions { margin-top: 34px; display: flex; flex-wrap: wrap; gap: 12px; }
 
-.hero-matchup {
+.hero-arena {
   grid-area: matchup;
   position: relative;
   z-index: 1;
+  min-width: 0;
+}
+
+.hero-matchup {
+  position: relative;
   align-self: center;
   min-width: 0;
   padding: 18px;
@@ -104,6 +109,56 @@
   box-shadow: 8px 8px 0 rgba(0, 0, 0, 0.38);
   transform: rotate(0.6deg);
 }
+
+.project-token-ca {
+  margin-top: 16px;
+  padding: 14px 16px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-left: 3px solid var(--accent-gold);
+  border-radius: 6px;
+  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.3);
+}
+
+.project-token-ca-label {
+  color: var(--accent-gold);
+  font: 600 0.62rem/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+}
+
+.project-token-ca code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 600 0.75rem/1.35 var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-token-ca-copy {
+  min-height: 34px;
+  padding: 0 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-on-paper);
+  background: var(--accent-gold);
+  border: 0;
+  border-radius: 3px;
+  font: 700 0.64rem/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.project-token-ca-copy:hover:not(:disabled) { filter: brightness(1.08); }
+.project-token-ca-copy:disabled { opacity: 0.65; cursor: not-allowed; }
 
 .hero-matchup::before {
   content: '';
@@ -170,7 +225,7 @@
   justify-items: center;
   gap: 10px;
   color: var(--text-secondary);
-  transform: translate(-50%, -2%);
+  transform: translate(-50%, -50%);
 }
 
 .matchup-vs span {
@@ -327,7 +382,8 @@
 
 @media (max-width: 960px) {
   .home-hero { grid-template-columns: 1fr; grid-template-areas: 'copy' 'matchup' 'stats'; padding-top: 132px; min-height: auto; }
-  .hero-matchup { width: 100%; margin-top: 52px; transform: none; }
+  .hero-arena { width: 100%; margin-top: 52px; }
+  .hero-matchup { transform: none; }
   .hero-stats { margin-top: 48px; }
   .steps-grid { grid-template-columns: 1fr; }
   .step-card { min-height: 220px; border-right: 0; border-bottom: 1px solid var(--border-hairline); }
@@ -341,6 +397,9 @@
   .hero-actions { flex-direction: column; }
   .hero-actions button { width: 100%; }
   .hero-matchup { padding: 12px; }
+  .project-token-ca { grid-template-columns: 1fr auto; gap: 9px; }
+  .project-token-ca-label { grid-column: 1 / -1; }
+  .project-token-ca code { font-size: 0.65rem; }
   .matchup-side { min-height: 190px; padding-inline: 10px; }
   .matchup-side strong { font-size: 1.12rem; }
   .matchup-side b { font-size: 0.72rem; }

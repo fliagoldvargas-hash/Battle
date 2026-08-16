@@ -5,6 +5,7 @@ import { useGSAP } from '@gsap/react'
 import { fetchPlatformStats } from '../services/analytics'
 import { fetchPublicBattles } from '../services/battles'
 import { CrownMark, Icon } from '../components/BrandMark'
+import { PROJECT_TOKEN_CA } from '../config/projectToken'
 import './Home.css'
 
 gsap.registerPlugin(useGSAP)
@@ -20,6 +21,19 @@ export default function Home() {
   const heroRef = useRef(null)
   const [stats, setStats] = useState(null)
   const [activeBattles, setActiveBattles] = useState([])
+  const [caCopied, setCaCopied] = useState(false)
+
+  const copyProjectTokenCa = async () => {
+    if (PROJECT_TOKEN_CA === 'SOON') return
+
+    try {
+      await navigator.clipboard.writeText(PROJECT_TOKEN_CA)
+      setCaCopied(true)
+      window.setTimeout(() => setCaCopied(false), 1800)
+    } catch {
+      setCaCopied(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -57,17 +71,33 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="hero-matchup" aria-label="ANSEM versus TROLL token matchup">
-          <div className="matchup-side matchup-a">
-            <img className="token-image" src="/token-icons/ansem.png" alt="ANSEM token" />
-            <div><strong>ANSEM</strong><span>Momentum pick</span></div>
-            <b className="perf-up mono">+12.84%</b>
+        <div className="hero-arena">
+          <div className="hero-matchup" aria-label="ANSEM versus TOAD token matchup">
+            <div className="matchup-side matchup-a">
+              <img className="token-image" src="/token-icons/ansem.png" alt="ANSEM token" />
+              <div><strong>ANSEM</strong><span>Momentum pick</span></div>
+              <b className="perf-up mono">+12.84%</b>
+            </div>
+            <div className="matchup-vs"><span>VS</span></div>
+            <div className="matchup-side matchup-b">
+              <img className="token-image token-image-b" src="/token-icons/toad.png" alt="TOAD token" />
+              <div><strong>TOAD</strong><span>Challenger</span></div>
+              <b className="perf-down mono">-3.27%</b>
+            </div>
           </div>
-          <div className="matchup-vs"><span>VS</span><small>Stake 1 SOL · Pot 1 SOL</small></div>
-          <div className="matchup-side matchup-b">
-            <img className="token-image token-image-b" src="/token-icons/troll.png" alt="TROLL token" />
-            <div><strong>TROLL</strong><span>Challenger</span></div>
-            <b className="perf-down mono">-3.27%</b>
+          <div className="project-token-ca" aria-label="FLIPPEN token contract address">
+            <span className="project-token-ca-label">FLIPPEN TOKEN CA</span>
+            <code>{PROJECT_TOKEN_CA}</code>
+            <button
+              type="button"
+              className="project-token-ca-copy"
+              onClick={copyProjectTokenCa}
+              disabled={PROJECT_TOKEN_CA === 'SOON'}
+              aria-label={PROJECT_TOKEN_CA === 'SOON' ? 'Token contract address coming soon' : 'Copy FLIPPEN token contract address'}
+            >
+              <Icon name="copy" size={16} />
+              {caCopied ? 'Copied' : 'Copy CA'}
+            </button>
           </div>
         </div>
 
