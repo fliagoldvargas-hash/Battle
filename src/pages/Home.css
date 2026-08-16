@@ -142,21 +142,22 @@
 .matchup-a { grid-area: a; border-top-color: var(--accent-crimson); }
 .matchup-b { grid-area: b; border-top-color: var(--accent-blue); }
 
-.token-orb {
+.token-image {
   width: 58px;
   height: 58px;
   display: grid;
   place-items: center;
-  color: #fff;
+  object-fit: cover;
+  object-position: center;
   background: var(--accent-crimson-dim);
   border: 3px solid var(--accent-crimson);
   border-radius: 50%;
-  font: 700 1.5rem/1 var(--font-display);
+  box-shadow: 0 0 0 3px rgba(227, 38, 54, .12);
 }
 
-.matchup-b .token-orb { background: #183272; border-color: var(--accent-blue); }
+.token-image-b { background: #183272; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(62, 111, 255, .14); }
 .matchup-side div { display: grid; gap: 5px; }
-.matchup-side strong { font: 700 1.55rem/1 var(--font-display); letter-spacing: 0.03em; }
+.matchup-side strong { font: 700 clamp(1.25rem, 2vw, 1.55rem)/1 var(--font-display); letter-spacing: 0.03em; }
 .matchup-side div span { color: var(--text-secondary); font-size: 0.7rem; }
 .matchup-side b { font: 600 0.88rem/1 var(--font-mono); }
 

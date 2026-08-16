@@ -57,18 +57,18 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="hero-matchup" aria-label="Illustrative token matchup">
-          <div className="matchup-note">Illustrative matchup</div>
+        <div className="hero-matchup" aria-label="Simulated ANSEM versus TROLL token matchup">
+          <div className="matchup-note">Simulated matchup · 1 minute</div>
           <div className="matchup-side matchup-a">
-            <span className="token-orb">A</span>
-            <div><strong>$ALPHA</strong><span>Momentum pick</span></div>
-            <b className="perf-up mono">+18.42%</b>
+            <img className="token-image" src="/token-icons/ansem.png" alt="ANSEM token" />
+            <div><strong>ANSEM</strong><span>Momentum pick</span></div>
+            <b className="perf-up mono">+12.84%</b>
           </div>
-          <div className="matchup-vs"><span>VS</span><small>1.00 SOL</small></div>
+          <div className="matchup-vs"><span>VS</span><small>0.014 SOL</small></div>
           <div className="matchup-side matchup-b">
-            <span className="token-orb">B</span>
-            <div><strong>$BETA</strong><span>Challenger</span></div>
-            <b className="perf-down mono">-4.81%</b>
+            <img className="token-image token-image-b" src="/token-icons/troll.png" alt="TROLL token" />
+            <div><strong>TROLL</strong><span>Challenger</span></div>
+            <b className="perf-down mono">-3.27%</b>
           </div>
         </div>
 
